@@ -1,5 +1,6 @@
 import { addBook, getAllBooks, deleteBook } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
+import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
@@ -8,7 +9,7 @@ export async function renderLibrary(container) {
     <div class="screen library-screen">
       <header class="library-header">
         <h1>Book Flow</h1>
-        <div id="theme-slot"></div>
+        <button id="theme-toggle" class="icon-button" aria-label="Switch theme">${getThemeIcon(getTheme())}</button>
       </header>
 
       <div class="add-book">
@@ -33,6 +34,11 @@ export async function renderLibrary(container) {
       </div>
     </div>
   `;
+
+  container.querySelector("#theme-toggle").addEventListener("click", (event) => {
+    const theme = cycleTheme();
+    event.target.textContent = getThemeIcon(theme);
+  });
 
   container.querySelector("#upload-button").addEventListener("click", () => {
     container.querySelector("#file-input").click();
