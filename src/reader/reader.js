@@ -166,3 +166,12 @@ function handleBack() {
   pause();
   window.location.hash = "#/library";
 }
+
+// Called by the router before leaving the reader route (e.g. swipe-back
+// navigation, not just the in-app back button), so a playing timer never
+// keeps ticking against a state that's no longer on screen.
+export function stopReader() {
+  if (state && state.playing) {
+    pause();
+  }
+}
