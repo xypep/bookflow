@@ -247,6 +247,14 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+#mode-toggle {
+  width: auto;
+  height: auto;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
 .reader-tap-zones {
   flex: 1;
   display: flex;

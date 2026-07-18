@@ -3,6 +3,7 @@ import { tokenize, escapeHtml } from "../utils.js";
 import { getOrpIndex } from "./rsvp.js";
 
 const WPM_STORAGE_KEY = "book-flow-wpm";
+const MODE_STORAGE_KEY = "book-flow-mode";
 const MIN_WPM = 100;
 const MAX_WPM = 900;
 const WPM_STEP = 25;
@@ -18,12 +19,14 @@ export async function renderReader(container, bookId) {
 
   const words = tokenize(book.text);
   const wpm = clampWpm(Number(localStorage.getItem(WPM_STORAGE_KEY)) || 300);
+  const mode = localStorage.getItem(MODE_STORAGE_KEY) === "manual" ? "manual" : "auto";
 
   state = {
     book,
     words,
     index: Math.min(book.progress || 0, Math.max(words.length - 1, 0)),
     wpm,
+    mode,
     playing: false,
     timerId: null,
   };
@@ -37,6 +40,7 @@ export async function renderReader(container, bookId) {
           <span id="wpm-value">${wpm} WPM</span>
           <button id="wpm-up" aria-label="Increase speed">+</button>
         </div>
+        <button id="mode-toggle" class="icon-button" aria-label="Switch tap mode">${modeLabel(mode)}</button>
       </header>
 
       <div class="reader-tap-zones">
@@ -61,6 +65,11 @@ export async function renderReader(container, bookId) {
   container.querySelector("#wpm-up").addEventListener("click", () => changeWpm(WPM_STEP));
   container.querySelector("#tap-left").addEventListener("click", handleTapLeft);
   container.querySelector("#tap-right").addEventListener("click", handleTapRight);
+  container.querySelector("#mode-toggle").addEventListener("click", toggleMode);
+}
+
+function modeLabel(mode) {
+  return mode === "manual" ? "Manual" : "Auto";
 }
 
 function clampWpm(wpm) {
@@ -134,7 +143,9 @@ function stepForward() {
 }
 
 function handleTapLeft() {
-  if (state.playing) {
+  if (state.mode === "manual") {
+    stepBack();
+  } else if (state.playing) {
     pause();
   } else {
     stepBack();
@@ -142,11 +153,22 @@ function handleTapLeft() {
 }
 
 function handleTapRight() {
-  if (state.playing) {
+  if (state.mode === "manual") {
+    stepForward();
+  } else if (state.playing) {
     stepForward();
   } else {
     play();
   }
+}
+
+function toggleMode() {
+  if (state.playing) {
+    pause();
+  }
+  state.mode = state.mode === "manual" ? "auto" : "manual";
+  localStorage.setItem(MODE_STORAGE_KEY, state.mode);
+  document.getElementById("mode-toggle").textContent = modeLabel(state.mode);
 }
 
 function changeWpm(delta) {

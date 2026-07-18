@@ -13,8 +13,8 @@ export async function renderLibrary(container) {
       </header>
 
       <div class="add-book">
-        <input type="file" id="file-input" accept=".txt,text/plain" hidden />
-        <button id="upload-button">Upload .txt</button>
+        <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
+        <button id="upload-button">Upload .txt / .md</button>
         <button id="paste-button">Paste text</button>
       </div>
 
@@ -80,7 +80,7 @@ function bookItem(book) {
 }
 
 function emptyState() {
-  return `<li class="empty-state">No books yet — upload a .txt file or paste some text to get started.</li>`;
+  return `<li class="empty-state">No books yet — upload a .txt or .md file or paste some text to get started.</li>`;
 }
 
 async function handleFileUpload(event, container) {
@@ -88,7 +88,7 @@ async function handleFileUpload(event, container) {
   if (!file) return;
 
   const text = await file.text();
-  const title = file.name.replace(/\.txt$/i, "");
+  const title = file.name.replace(/\.(txt|md)$/i, "");
   await saveBook(title, text);
 
   event.target.value = "";
