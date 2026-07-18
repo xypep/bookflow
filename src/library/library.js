@@ -1,7 +1,8 @@
 import { addBook, getAllBooks, deleteBook } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
-import { scanPages } from "../scanner/scanner.js";
+import { scanPages, getWorker } from "../scanner/scanner.js";
+import { detectOrientation, rotateCanvas } from "../scanner/orientation.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
 import { AVAILABLE_LANGUAGES, getLanguages, setLanguages } from "../scanner/languages.js";
 import { cropAndStraighten } from "../scanner/cropper.js";
@@ -195,16 +196,34 @@ async function startScan(container) {
   }
 }
 
+// Safari will not allocate a canvas much beyond 16.7 megapixels, which a photo
+// straight from the library can exceed.
+const MAX_SOURCE_EDGE = 4000;
+
 // Cropping to one page and squaring it up is what makes a page inside a bound
 // book readable: it removes the facing page and the curved area near the
-// spine, and undoes the angle the photo was taken at.
+// spine, and undoes the angle the photo was taken at. Orientation is settled
+// first, so the corners are dragged on an upright page.
 async function straightenCapture(image) {
   const bitmap = await createImageBitmap(image, { imageOrientation: "from-image" });
+
+  const factor = Math.min(1, MAX_SOURCE_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * factor);
+  canvas.height = Math.round(bitmap.height * factor);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  let upright = canvas;
   try {
-    return await cropAndStraighten(bitmap);
-  } finally {
-    bitmap.close();
+    const turns = await detectOrientation(await getWorker(), canvas);
+    upright = rotateCanvas(canvas, turns);
+  } catch (error) {
+    // Detection is a convenience — if it fails, crop the shot as taken.
+    console.error(error);
   }
+
+  return cropAndStraighten(upright);
 }
 
 async function handleScan(event, container) {
