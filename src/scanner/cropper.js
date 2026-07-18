@@ -73,9 +73,9 @@ function drawGuides(ctx, quad) {
  * `detectedQuad` optionally pre-positions the handles, in the same coordinate
  * space as the image. Pass `null` to start from the default inset box — the
  * handles behave identically either way, so a missed or wrong detection costs
- * nothing beyond a drag.
+ * nothing beyond a drag. `position` labels which page of a batch this is.
  */
-export function cropAndStraighten(imageBitmap, detectedQuad = null) {
+export function cropAndStraighten(imageBitmap, { detectedQuad = null, position = "" } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     document.body.appendChild(overlay);
@@ -109,10 +109,9 @@ export function cropAndStraighten(imageBitmap, detectedQuad = null) {
       ? detectedQuad.map(({ x, y }) => ({ x: x * fit, y: y * fit }))
       : initialQuad(shownWidth, shownHeight);
 
-    if (detectedQuad) {
-      overlay.querySelector(".cropper-hint").textContent =
-        "Page detected — adjust if needed, then straighten";
-    }
+    overlay.querySelector(".cropper-hint").textContent = detectedQuad
+      ? `Page detected${position} — adjust if needed, then straighten`
+      : `Drag the corners onto the page${position}, then straighten`;
 
     const render = () => {
       const ctx = canvas.getContext("2d");

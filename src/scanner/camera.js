@@ -46,11 +46,14 @@ function buildOverlay() {
   overlay.innerHTML = `
     <video class="camera-video" playsinline muted autoplay></video>
     <canvas class="camera-boxes"></canvas>
+    <button type="button" class="camera-cancel" aria-label="Cancel scanning">&times;</button>
     <p class="camera-hint">Point the camera at a page</p>
+    <p class="camera-count" hidden></p>
+    <div class="camera-flash" hidden></div>
     <div class="camera-controls">
-      <button type="button" class="camera-cancel">Cancel</button>
-      <button type="button" class="camera-shutter" aria-label="Take picture"></button>
       <button type="button" class="camera-pick">Files</button>
+      <button type="button" class="camera-shutter" aria-label="Take picture"></button>
+      <button type="button" class="camera-done" disabled>Done</button>
     </div>
   `;
   return overlay;
@@ -155,9 +158,11 @@ function wait(ms) {
 }
 
 /**
- * Opens the camera and resolves with the captured image.
- * Resolves with `null` if the user cancels, and with `"files"` if they ask to
- * pick an existing image instead.
+ * Opens the camera and keeps it open so pages can be shot one after another:
+ * the point of scanning a book is not stopping after every page.
+ *
+ * Resolves with an array of captured images, with `null` if the user backs
+ * out, and with `"files"` if they ask to pick existing images instead.
  */
 export async function captureFromCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -186,12 +191,49 @@ export async function captureFromCamera() {
       () => running
     );
 
+    const captured = [];
+    const counter = overlay.querySelector(".camera-count");
+    const done = overlay.querySelector(".camera-done");
+    const flash = overlay.querySelector(".camera-flash");
+
+    const showCount = () => {
+      counter.hidden = captured.length === 0;
+      counter.textContent = `${captured.length} page${captured.length === 1 ? "" : "s"} captured`;
+      done.disabled = captured.length === 0;
+    };
+
+    // Brief blink so a capture is unmistakable without a preview interrupting
+    // the run of shots.
+    const blink = () => {
+      flash.hidden = false;
+      setTimeout(() => {
+        flash.hidden = true;
+      }, 90);
+    };
+
     return await new Promise((resolve) => {
-      overlay.querySelector(".camera-cancel").addEventListener("click", () => resolve(null));
+      overlay.querySelector(".camera-cancel").addEventListener("click", () => {
+        const lost = captured.length;
+        if (lost && !window.confirm(`Discard ${lost} captured page${lost === 1 ? "" : "s"}?`)) return;
+        resolve(null);
+      });
+
       overlay.querySelector(".camera-pick").addEventListener("click", () => resolve("files"));
+      done.addEventListener("click", () => resolve(captured));
+
       overlay.querySelector(".camera-shutter").addEventListener("click", async (event) => {
-        event.currentTarget.disabled = true;
-        resolve(await grabFrame(video));
+        const shutter = event.currentTarget;
+        // Only for the moment the frame is read; the camera stays live so the
+        // next page can be shot straight away.
+        shutter.disabled = true;
+        const blob = await grabFrame(video);
+        shutter.disabled = false;
+
+        if (blob) {
+          captured.push(blob);
+          showCount();
+          blink();
+        }
       });
     });
   } finally {

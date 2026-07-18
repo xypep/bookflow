@@ -20,7 +20,7 @@ export async function renderLibrary(container) {
 
       <div class="add-book">
         <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
-        <input type="file" id="scan-input" accept="image/*" hidden />
+        <input type="file" id="scan-input" accept="image/*" multiple hidden />
         <button id="upload-button">Upload .txt / .md</button>
         <button id="scan-button">Scan document</button>
         <button id="paste-button">Paste text</button>
@@ -198,10 +198,27 @@ async function startScan(container) {
 
   if (capture === "files") {
     pickImageFile(container);
-  } else if (capture) {
-    const straightened = await straightenCapture(capture, container);
-    if (straightened) await runScan([straightened], container);
+    return;
   }
+
+  if (Array.isArray(capture) && capture.length) {
+    await prepareAndScan(capture, container);
+  }
+}
+
+// Each captured page goes through orientation, detection and the crop screen
+// in turn; skipping a page there just leaves it out rather than abandoning the
+// whole batch.
+async function prepareAndScan(images, container) {
+  const pages = [];
+
+  for (const [index, image] of images.entries()) {
+    const position = images.length > 1 ? ` (${index + 1} of ${images.length})` : "";
+    const straightened = await straightenCapture(image, container, position);
+    if (straightened) pages.push(straightened);
+  }
+
+  if (pages.length) await runScan(pages, container);
 }
 
 // Safari will not allocate a canvas much beyond 16.7 megapixels, which a photo
@@ -212,7 +229,7 @@ const MAX_SOURCE_EDGE = 4000;
 // book readable: it removes the facing page and the curved area near the
 // spine, and undoes the angle the photo was taken at. Orientation is settled
 // first, so the corners are dragged on an upright page.
-async function straightenCapture(image, container) {
+async function straightenCapture(image, container, position = "") {
   const bitmap = await createImageBitmap(image, { imageOrientation: "from-image" });
 
   const factor = Math.min(1, MAX_SOURCE_EDGE / Math.max(bitmap.width, bitmap.height));
@@ -228,7 +245,7 @@ async function straightenCapture(image, container) {
   // Orientation detection takes a moment, and the very first scan also has to
   // fetch the language data. Without this the app just sits there looking
   // broken between the shutter and the crop screen.
-  toggleScanToast(container, "Preparing page…");
+  toggleScanToast(container, `Preparing page${position}…`);
 
   try {
     // One recognition pass settles the orientation and locates the text block:
@@ -249,7 +266,7 @@ async function straightenCapture(image, container) {
     toggleScanToast(container, null);
   }
 
-  return cropAndStraighten(upright, corners);
+  return cropAndStraighten(upright, { detectedQuad: corners, position });
 }
 
 async function handleScan(event, container) {
@@ -257,13 +274,7 @@ async function handleScan(event, container) {
   // Cleared up front so picking the same file twice still fires a change.
   event.target.value = "";
 
-  const prepared = [];
-  for (const file of files) {
-    const straightened = await straightenCapture(file, container);
-    if (straightened) prepared.push(straightened);
-  }
-
-  if (prepared.length) await runScan(prepared, container);
+  if (files.length) await prepareAndScan(files, container);
 }
 
 async function runScan(files, container) {
