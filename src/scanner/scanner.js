@@ -1,5 +1,6 @@
 import { createWorker } from "tesseract.js";
 import { toGrayscale, adaptiveThreshold, grayToRgba } from "./binarize.js";
+import { extractText, dehyphenate } from "./extract.js";
 
 // Worker + wasm core are self-hosted (see public/tesseract) instead of the
 // default jsDelivr CDN, so scanning also works when the app is opened over
@@ -19,13 +20,6 @@ function getWorker() {
     });
   }
   return workerPromise;
-}
-
-// Undoes the most common OCR artifact: a word split by a line-break hyphen
-// (e.g. "informa-\ntion") comes out as two separate tokens otherwise, which
-// breaks the one-word-at-a-time reader.
-function cleanOcrText(text) {
-  return text.replace(/(\w)-\n(\w)/g, "$1$2");
 }
 
 // Safari refuses to allocate canvases beyond roughly 16.7 megapixels and
@@ -88,18 +82,27 @@ function release(canvas) {
 // reports low confidence — then whichever read better is kept.
 const LOW_CONFIDENCE = 75;
 
+// Word-level output is needed so unreliable words can be discarded; the plain
+// text Tesseract renders has already thrown that information away.
+const WORD_OUTPUT = { blocks: true, text: false };
+
+// A page photographed by hand is never quite square to the camera, and even a
+// slight tilt costs accuracy. Tesseract can measure and correct the skew.
+const RECOGNIZE_OPTIONS = { rotateAuto: true };
+
 async function recognizePage(worker, file) {
   const raw = await loadCanvas(file);
   const cleaned = binarizeCanvas(raw);
 
   try {
-    const cleanedResult = (await worker.recognize(cleaned)).data;
+    const cleanedResult = (await worker.recognize(cleaned, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
     if (cleanedResult.confidence >= LOW_CONFIDENCE) {
-      return cleanedResult.text;
+      return extractText(cleanedResult.blocks);
     }
 
-    const rawResult = (await worker.recognize(raw)).data;
-    return rawResult.confidence > cleanedResult.confidence ? rawResult.text : cleanedResult.text;
+    const rawResult = (await worker.recognize(raw, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
+    const better = rawResult.confidence > cleanedResult.confidence ? rawResult : cleanedResult;
+    return extractText(better.blocks);
   } finally {
     release(cleaned);
     release(raw);
@@ -115,7 +118,7 @@ export async function scanPages(files, onProgress) {
   for (let i = 0; i < files.length; i += 1) {
     onProgress?.(i + 1, files.length);
     const text = await recognizePage(worker, files[i]);
-    pageTexts.push(cleanOcrText(text).trim());
+    pageTexts.push(dehyphenate(text).trim());
   }
 
   return pageTexts.join("\n\n");
