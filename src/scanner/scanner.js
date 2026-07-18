@@ -1,26 +1,52 @@
 import { createWorker } from "tesseract.js";
 import { toGrayscale, adaptiveThreshold, grayToRgba } from "./binarize.js";
 import { extractText, dehyphenate } from "./extract.js";
+import { languageString } from "./languages.js";
 
 // Worker + wasm core are self-hosted (see public/tesseract) instead of the
 // default jsDelivr CDN, so scanning also works when the app is opened over
 // plain http on the local network where CORS/mixed content can be an issue.
 let workerPromise = null;
+let loadedLanguages = null;
+
+function createOcrWorker(languages) {
+  return createWorker(languages, undefined, {
+    workerPath: "/tesseract/worker.min.js",
+    corePath: "/tesseract/tesseract-core-simd-lstm.wasm.js",
+  }).catch((error) => {
+    // Don't keep a rejected promise cached — otherwise every later scan
+    // fails instantly until the page is reloaded.
+    workerPromise = null;
+    loadedLanguages = null;
+    throw error;
+  });
+}
 
 // Shared with the live camera preview so the multi-megabyte core and language
-// data are only ever loaded once.
+// data are only ever loaded once. A changed language selection reinitializes
+// the existing worker rather than building a new one, which would re-fetch the
+// core for no reason.
 export function getWorker() {
+  const languages = languageString();
+
   if (!workerPromise) {
-    workerPromise = createWorker("deu+eng", undefined, {
-      workerPath: "/tesseract/worker.min.js",
-      corePath: "/tesseract/tesseract-core-simd-lstm.wasm.js",
-    }).catch((error) => {
-      // Don't keep a rejected promise cached — otherwise every later scan
-      // fails instantly until the page is reloaded.
-      workerPromise = null;
-      throw error;
-    });
+    workerPromise = createOcrWorker(languages);
+  } else if (languages !== loadedLanguages) {
+    workerPromise = workerPromise
+      .then(async (worker) => {
+        await worker.reinitialize(languages);
+        return worker;
+      })
+      .catch((error) => {
+        // Same reasoning as above: a cached rejection would break every later
+        // scan, so drop it and let the next attempt start clean.
+        workerPromise = null;
+        loadedLanguages = null;
+        throw error;
+      });
   }
+
+  loadedLanguages = languages;
   return workerPromise;
 }
 

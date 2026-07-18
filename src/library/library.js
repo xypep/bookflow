@@ -3,6 +3,7 @@ import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { scanPages } from "../scanner/scanner.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
+import { AVAILABLE_LANGUAGES, getLanguages, setLanguages } from "../scanner/languages.js";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
@@ -21,6 +22,12 @@ export async function renderLibrary(container) {
         <button id="scan-button">Scan document</button>
         <button id="paste-button">Paste text</button>
       </div>
+
+      <details class="scan-languages">
+        <summary>Scan languages</summary>
+        <p class="scan-languages-note">Each extra language slows scanning and can reduce accuracy for the others.</p>
+        <div class="scan-languages-options">${languageCheckboxes()}</div>
+      </details>
 
       <ul class="book-list">
         ${books.length ? books.map(bookItem).join("") : emptyState()}
@@ -83,8 +90,37 @@ export async function renderLibrary(container) {
     startScan(container);
   });
 
+  container.querySelector(".scan-languages-options").addEventListener("change", () => {
+    handleLanguageChange(container);
+  });
+
   container.querySelector(".book-list").addEventListener("click", (event) => {
     handleListClick(event, container);
+  });
+}
+
+function languageCheckboxes() {
+  const selected = new Set(getLanguages());
+
+  return AVAILABLE_LANGUAGES.map(
+    ({ code, label }) => `
+      <label class="scan-language">
+        <input type="checkbox" value="${code}" ${selected.has(code) ? "checked" : ""} />
+        ${label}
+      </label>
+    `
+  ).join("");
+}
+
+function handleLanguageChange(container) {
+  const checked = [...container.querySelectorAll(".scan-languages-options input:checked")];
+  setLanguages(checked.map((input) => input.value));
+
+  // Clearing every box would leave nothing to recognize with, so the stored
+  // default is reflected back into the UI.
+  const selected = new Set(getLanguages());
+  container.querySelectorAll(".scan-languages-options input").forEach((input) => {
+    input.checked = selected.has(input.value);
   });
 }
 
