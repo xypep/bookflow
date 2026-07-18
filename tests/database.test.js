@@ -89,6 +89,19 @@ test("the library lists newest first and carries each position", async () => {
   assert.equal(books.at(-1).title, "Legacy Book");
 });
 
+test("books added within the same millisecond keep their order", async () => {
+  const titles = ["First", "Second", "Third", "Fourth"];
+  for (const title of titles) {
+    await db.addBook({ title, text: "a b", wordCount: 2 });
+  }
+
+  const listed = (await db.getAllBooks())
+    .map((book) => book.title)
+    .filter((title) => titles.includes(title));
+
+  assert.deepEqual(listed, [...titles].reverse());
+});
+
 test("deleting a book removes it from the library", async () => {
   const book = await db.addBook({ title: "Doomed", text: "a b", wordCount: 2 });
   await db.deleteBook(book.id);

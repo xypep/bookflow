@@ -13,6 +13,16 @@ function generateId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// The library is ordered by creation time, and books added in the same
+// millisecond would otherwise have no defined order between them. Forcing the
+// value to strictly increase keeps that ordering stable.
+let lastCreatedAt = 0;
+
+function nextCreatedAt() {
+  lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1);
+  return lastCreatedAt;
+}
+
 let dbPromise = null;
 
 function getDatabase() {
@@ -61,7 +71,7 @@ export async function addBook({ title, text, wordCount }) {
     title,
     text,
     wordCount,
-    createdAt: Date.now(),
+    createdAt: nextCreatedAt(),
   };
   await promisifyRequest(openStore(db, STORE_NAME, "readwrite").add(book));
   return withProgress(book);
