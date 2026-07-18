@@ -1,6 +1,7 @@
 import { getBook, updateProgress } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getOrpIndex } from "./rsvp.js";
+import { findChapters, chapterAt } from "./chapters.js";
 
 const WPM_STORAGE_KEY = "book-flow-wpm";
 const MODE_STORAGE_KEY = "book-flow-mode";
@@ -18,6 +19,7 @@ export async function renderReader(container, bookId) {
   }
 
   const words = tokenize(book.text);
+  const chapters = findChapters(book.text);
   const wpm = clampWpm(Number(localStorage.getItem(WPM_STORAGE_KEY)) || 300);
   const mode = localStorage.getItem(MODE_STORAGE_KEY) === "manual" ? "manual" : "auto";
 
@@ -27,6 +29,7 @@ export async function renderReader(container, bookId) {
     index: Math.min(book.progress || 0, Math.max(words.length - 1, 0)),
     wpm,
     mode,
+    chapters,
     playing: false,
     timerId: null,
   };
@@ -41,6 +44,7 @@ export async function renderReader(container, bookId) {
           <button id="wpm-up" aria-label="Increase speed">+</button>
         </div>
         <button id="mode-toggle" class="icon-button" aria-label="Switch tap mode">${modeLabel(mode)}</button>
+        ${chapters.length ? `<button id="chapter-button" class="icon-button" aria-label="Jump to chapter">☰</button>` : ""}
       </header>
 
       <div class="reader-tap-zones">
@@ -54,6 +58,8 @@ export async function renderReader(container, bookId) {
       <div class="progress-bar">
         <div id="progress-fill" class="progress-fill"></div>
       </div>
+
+      ${chapters.length ? chapterModal(chapters) : ""}
     </div>
   `;
 
@@ -66,6 +72,61 @@ export async function renderReader(container, bookId) {
   container.querySelector("#tap-left").addEventListener("click", handleTapLeft);
   container.querySelector("#tap-right").addEventListener("click", handleTapRight);
   container.querySelector("#mode-toggle").addEventListener("click", toggleMode);
+
+  if (chapters.length) {
+    container.querySelector("#chapter-button").addEventListener("click", () => toggleChapters(true));
+    container.querySelector("#chapter-close").addEventListener("click", () => toggleChapters(false));
+    container.querySelector("#chapter-list").addEventListener("click", handleChapterPick);
+  }
+}
+
+function chapterModal(chapters) {
+  return `
+    <div id="chapter-modal" class="modal hidden">
+      <div class="modal-content chapter-sheet">
+        <ul id="chapter-list" class="chapter-list">
+          ${chapters
+            .map(
+              (chapter, index) =>
+                `<li><button type="button" data-index="${index}">${escapeHtml(chapter.title)}</button></li>`
+            )
+            .join("")}
+        </ul>
+        <div class="modal-actions">
+          <button id="chapter-close">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleChapters(show) {
+  const modal = document.getElementById("chapter-modal");
+  if (!modal) return;
+
+  // Jumping while the timer runs would land on the wrong word a moment later.
+  if (show && state.playing) pause();
+
+  modal.classList.toggle("hidden", !show);
+  if (show) markCurrentChapter();
+}
+
+function markCurrentChapter() {
+  const current = chapterAt(state.chapters, state.index);
+  document.querySelectorAll("#chapter-list button").forEach((button, index) => {
+    button.classList.toggle("current", current === state.chapters[index]);
+  });
+}
+
+function handleChapterPick(event) {
+  const button = event.target.closest("button[data-index]");
+  if (!button) return;
+
+  state.index = state.chapters[Number(button.dataset.index)].index;
+  renderWord();
+  updateProgressBar();
+  saveProgress();
+  toggleChapters(false);
 }
 
 function modeLabel(mode) {
