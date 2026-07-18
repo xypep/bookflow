@@ -2,6 +2,7 @@ import { addBook, getAllBooks, deleteBook } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { scanPages } from "../scanner/scanner.js";
+import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
@@ -59,7 +60,7 @@ export async function renderLibrary(container) {
   });
 
   container.querySelector("#scan-button").addEventListener("click", () => {
-    container.querySelector("#scan-input").click();
+    startScan(container);
   });
 
   container.querySelector("#scan-input").addEventListener("change", (event) => {
@@ -79,7 +80,7 @@ export async function renderLibrary(container) {
   });
 
   container.querySelector("#paste-scan-more").addEventListener("click", () => {
-    container.querySelector("#scan-input").click();
+    startScan(container);
   });
 
   container.querySelector(".book-list").addEventListener("click", (event) => {
@@ -127,41 +128,76 @@ function togglePasteModal(container, show, prefill = {}) {
   }
 }
 
-async function handleScan(event, container) {
-  const files = Array.from(event.target.files);
-  if (!files.length) return;
+function pickImageFile(container) {
+  container.querySelector("#scan-input").click();
+}
 
+// Prefers the in-app camera, which guides framing and so avoids most of the
+// noise OCR struggles with. Falls back to the file picker wherever the camera
+// isn't reachable — notably over plain http, where it isn't exposed at all.
+async function startScan(container) {
+  if (!isCameraAvailable()) {
+    pickImageFile(container);
+    return;
+  }
+
+  let capture;
+  try {
+    capture = await captureFromCamera();
+  } catch (error) {
+    console.error(error);
+    pickImageFile(container);
+    return;
+  }
+
+  if (capture === "files") {
+    pickImageFile(container);
+  } else if (capture) {
+    await runScan([capture], container);
+  }
+}
+
+function handleScan(event, container) {
+  const files = Array.from(event.target.files);
+  // Cleared up front so picking the same file twice still fires a change.
+  event.target.value = "";
+
+  if (files.length) runScan(files, container);
+}
+
+async function runScan(files, container) {
   toggleScanOverlay(container, true);
 
   try {
     const text = await scanPages(files, (page, total) => {
       setScanStatus(container, `Scanning page ${page} of ${total}…`);
     });
-
     toggleScanOverlay(container, false);
-
-    // Scanned text often needs a manual fix here and there (OCR isn't
-    // perfect), so it's opened in the paste modal for review before saving
-    // instead of being saved straight away. If the modal is already open
-    // (via "Scan more pages"), the new pages are appended to the draft
-    // instead of replacing it, so a book can be built up scan by scan.
-    const modal = container.querySelector("#paste-modal");
-    if (modal.classList.contains("hidden")) {
-      togglePasteModal(container, true, {
-        title: `Scan ${new Date().toLocaleDateString()}`,
-        text,
-      });
-    } else {
-      const textarea = container.querySelector("#paste-text");
-      textarea.value = textarea.value ? `${textarea.value}\n\n${text}` : text;
-    }
+    showScanResult(container, text);
   } catch (error) {
     toggleScanOverlay(container, false);
     window.alert("Scanning failed. Please try again.");
     console.error(error);
   }
+}
 
-  event.target.value = "";
+// Scanned text always needs a fix here and there, so it lands in the paste
+// modal for review rather than being saved straight away. When the modal is
+// already open (via "Scan more pages") the new page is appended to the draft,
+// letting a book be built up scan by scan.
+function showScanResult(container, text) {
+  const modal = container.querySelector("#paste-modal");
+
+  if (modal.classList.contains("hidden")) {
+    togglePasteModal(container, true, {
+      title: `Scan ${new Date().toLocaleDateString()}`,
+      text,
+    });
+    return;
+  }
+
+  const textarea = container.querySelector("#paste-text");
+  textarea.value = textarea.value ? `${textarea.value}\n\n${text}` : text;
 }
 
 function toggleScanOverlay(container, show) {
