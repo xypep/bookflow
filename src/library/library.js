@@ -1,6 +1,7 @@
 import { addBook, getAllBooks, deleteBook } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
+import { scanPages } from "../scanner/scanner.js";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
@@ -14,7 +15,9 @@ export async function renderLibrary(container) {
 
       <div class="add-book">
         <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
+        <input type="file" id="scan-input" accept="image/*" multiple hidden />
         <button id="upload-button">Upload .txt / .md</button>
+        <button id="scan-button">Scan document</button>
         <button id="paste-button">Paste text</button>
       </div>
 
@@ -32,6 +35,12 @@ export async function renderLibrary(container) {
           </div>
         </div>
       </div>
+
+      <div id="scan-overlay" class="modal hidden">
+        <div class="modal-content scan-status">
+          <p id="scan-status-text">Scanning…</p>
+        </div>
+      </div>
     </div>
   `;
 
@@ -46,6 +55,14 @@ export async function renderLibrary(container) {
 
   container.querySelector("#file-input").addEventListener("change", (event) => {
     handleFileUpload(event, container);
+  });
+
+  container.querySelector("#scan-button").addEventListener("click", () => {
+    container.querySelector("#scan-input").click();
+  });
+
+  container.querySelector("#scan-input").addEventListener("change", (event) => {
+    handleScan(event, container);
   });
 
   container.querySelector("#paste-button").addEventListener("click", () => {
@@ -95,14 +112,51 @@ async function handleFileUpload(event, container) {
   renderLibrary(container);
 }
 
-function togglePasteModal(container, show) {
+function togglePasteModal(container, show, prefill = {}) {
   const modal = container.querySelector("#paste-modal");
   modal.classList.toggle("hidden", !show);
   if (show) {
-    container.querySelector("#paste-title").value = "";
-    container.querySelector("#paste-text").value = "";
+    container.querySelector("#paste-title").value = prefill.title ?? "";
+    container.querySelector("#paste-text").value = prefill.text ?? "";
     container.querySelector("#paste-title").focus();
   }
+}
+
+async function handleScan(event, container) {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+
+  toggleScanOverlay(container, true);
+
+  try {
+    const text = await scanPages(files, (page, total) => {
+      setScanStatus(container, `Scanning page ${page} of ${total}…`);
+    });
+
+    toggleScanOverlay(container, false);
+
+    // Scanned text often needs a manual fix here and there (OCR isn't
+    // perfect), so it's opened in the paste modal for review before saving
+    // instead of being saved straight away.
+    togglePasteModal(container, true, {
+      title: `Scan ${new Date().toLocaleDateString()}`,
+      text,
+    });
+  } catch (error) {
+    toggleScanOverlay(container, false);
+    window.alert("Scanning failed. Please try again.");
+    console.error(error);
+  }
+
+  event.target.value = "";
+}
+
+function toggleScanOverlay(container, show) {
+  container.querySelector("#scan-overlay").classList.toggle("hidden", !show);
+}
+
+function setScanStatus(container, text) {
+  container.querySelector("#scan-status-text").textContent = text;
 }
 
 async function handlePasteSave(container) {
