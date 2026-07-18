@@ -1,7 +1,11 @@
 import "./style.css";
+import { renderLibrary } from "./library/library.js";
 
-document.querySelector("#app").innerHTML = `
-  <div style="display: flex; align-items: center; justify-content: center; height: 100%;">
-    <h1>Book Flow</h1>
-  </div>
-`;
+const app = document.querySelector("#app");
+
+function router() {
+  renderLibrary(app);
+}
+
+window.addEventListener("hashchange", router);
+router();
