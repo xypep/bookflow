@@ -25,3 +25,6 @@ dist-ssr
 
 # Language data fetched at runtime by tesseract.js
 *.traineddata
+
+# Sample scans for local measurement, not source
+samples/*.pdf
