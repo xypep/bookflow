@@ -137,6 +137,7 @@ function pause() {
   state.playing = false;
   clearTimeout(state.timerId);
   saveProgress();
+  flushProgress();
 }
 
 function stepBack() {
@@ -191,8 +192,27 @@ function changeWpm(delta) {
   }
 }
 
+// Progress changes on every word, which is far more often than it needs to be
+// persisted. Writes are throttled, and the pending position is captured by
+// value so a write that lands after navigation still targets the right book.
+const PROGRESS_SAVE_INTERVAL = 1000;
+
+let pendingSave = null;
+let progressSaveTimer = null;
+
 function saveProgress() {
-  updateProgress(state.book.id, state.index);
+  pendingSave = { id: state.book.id, index: state.index };
+  if (progressSaveTimer) return;
+  progressSaveTimer = setTimeout(flushProgress, PROGRESS_SAVE_INTERVAL);
+}
+
+function flushProgress() {
+  clearTimeout(progressSaveTimer);
+  progressSaveTimer = null;
+  if (!pendingSave) return;
+
+  updateProgress(pendingSave.id, pendingSave.index);
+  pendingSave = null;
 }
 
 function handleBack() {
@@ -204,7 +224,9 @@ function handleBack() {
 // navigation, not just the in-app back button), so a playing timer never
 // keeps ticking against a state that's no longer on screen.
 export function stopReader() {
-  if (state && state.playing) {
+  if (!state) return;
+  if (state.playing) {
     pause();
   }
+  flushProgress();
 }

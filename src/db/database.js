@@ -1,6 +1,10 @@
 const DB_NAME = "book-flow";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "books";
+// Reading position lives in its own store: it changes several times per
+// second, and IndexedDB can only replace whole records. Keeping it on the
+// book record meant rewriting the entire book text on every word.
+const PROGRESS_STORE = "progress";
 
 // crypto.randomUUID() only works in secure contexts (https or localhost), but
 // the app is also used over plain http on the local network (phone testing),
@@ -17,7 +21,13 @@ function getDatabase() {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = () => {
-        request.result.createObjectStore(STORE_NAME, { keyPath: "id" });
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(PROGRESS_STORE)) {
+          db.createObjectStore(PROGRESS_STORE, { keyPath: "id" });
+        }
       };
 
       request.onsuccess = () => resolve(request.result);
@@ -34,6 +44,16 @@ function promisifyRequest(request) {
   });
 }
 
+function openStore(db, name, mode) {
+  return db.transaction(name, mode).objectStore(name);
+}
+
+// Books written before the progress store existed still carry a `progress`
+// field, so that value is used as a fallback for them.
+function withProgress(book, progress) {
+  return { ...book, progress: progress ?? book.progress ?? 0 };
+}
+
 export async function addBook({ title, text, wordCount }) {
   const db = await getDatabase();
   const book = {
@@ -41,38 +61,42 @@ export async function addBook({ title, text, wordCount }) {
     title,
     text,
     wordCount,
-    progress: 0,
     createdAt: Date.now(),
   };
-  const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
-  await promisifyRequest(store.add(book));
-  return book;
+  await promisifyRequest(openStore(db, STORE_NAME, "readwrite").add(book));
+  return withProgress(book);
 }
 
 export async function getAllBooks() {
   const db = await getDatabase();
-  const store = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
-  const books = await promisifyRequest(store.getAll());
-  return books.sort((a, b) => b.createdAt - a.createdAt);
+  const books = await promisifyRequest(openStore(db, STORE_NAME, "readonly").getAll());
+  const records = await promisifyRequest(openStore(db, PROGRESS_STORE, "readonly").getAll());
+  const progressById = new Map(records.map((record) => [record.id, record.progress]));
+
+  return books
+    .map((book) => withProgress(book, progressById.get(book.id)))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getBook(id) {
   const db = await getDatabase();
-  const store = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
-  return promisifyRequest(store.get(id));
+  const book = await promisifyRequest(openStore(db, STORE_NAME, "readonly").get(id));
+  if (!book) return book;
+
+  const record = await promisifyRequest(openStore(db, PROGRESS_STORE, "readonly").get(id));
+  return withProgress(book, record?.progress);
 }
 
 export async function updateProgress(id, progress) {
   const db = await getDatabase();
-  const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
-  const book = await promisifyRequest(store.get(id));
-  if (!book) return;
-  book.progress = progress;
-  await promisifyRequest(store.put(book));
+  await promisifyRequest(openStore(db, PROGRESS_STORE, "readwrite").put({ id, progress }));
 }
 
 export async function deleteBook(id) {
   const db = await getDatabase();
-  const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
-  await promisifyRequest(store.delete(id));
+  const transaction = db.transaction([STORE_NAME, PROGRESS_STORE], "readwrite");
+  await Promise.all([
+    promisifyRequest(transaction.objectStore(STORE_NAME).delete(id)),
+    promisifyRequest(transaction.objectStore(PROGRESS_STORE).delete(id)),
+  ]);
 }

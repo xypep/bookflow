@@ -10,6 +10,11 @@ function getWorker() {
     workerPromise = createWorker("deu+eng", undefined, {
       workerPath: "/tesseract/worker.min.js",
       corePath: "/tesseract/tesseract-core-simd-lstm.wasm.js",
+    }).catch((error) => {
+      // Don't keep a rejected promise cached — otherwise every later scan
+      // fails instantly until the page is reloaded.
+      workerPromise = null;
+      throw error;
     });
   }
   return workerPromise;
@@ -22,18 +27,38 @@ function cleanOcrText(text) {
   return text.replace(/(\w)-\n(\w)/g, "$1$2");
 }
 
+// Safari refuses to allocate canvases beyond roughly 16.7 megapixels and
+// silently hands back a blank one instead. Modern phone cameras shoot well
+// past that (a 24 MP iPhone photo is ~24.5 MP), so images are scaled down
+// before drawing. ~2400px on the long edge is also plenty of resolution for
+// OCR on a page of text, and keeps recognition fast.
+const MAX_EDGE = 2400;
+
+function fitDimensions(width, height) {
+  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+  return {
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
+
 // Plain phone photos (no perspective correction, uneven lighting) recognize
 // noticeably worse than scanner-app output. Converting to grayscale and
 // stretching contrast around the midpoint gives Tesseract a cleaner,
 // more binary-looking image to work with and measurably helps accuracy.
 async function preprocessImage(file) {
-  const bitmap = await createImageBitmap(file);
+  // "from-image" applies the EXIF rotation. Without it, portrait photos reach
+  // Tesseract sideways, where text is essentially unrecognizable.
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const { width, height } = fitDimensions(bitmap.width, bitmap.height);
+
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = width;
+  canvas.height = height;
 
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(bitmap, 0, 0);
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const { data } = imageData;
