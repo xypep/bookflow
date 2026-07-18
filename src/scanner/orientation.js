@@ -9,7 +9,10 @@
 // that was already upright, so the probe is not shrunk further.
 
 const PROBE_EDGE = 600;
-const PROBE_OUTPUT = { text: true, blocks: false };
+
+// Word-level output, so the winning pass can also be handed to page detection
+// instead of paying for a second recognition just to locate the text.
+const PROBE_OUTPUT = { blocks: true, text: false };
 
 // Most pages are photographed the right way up, and probing all four turns for
 // those is three passes of wasted time. Measured at 600px, upright samples
@@ -51,26 +54,36 @@ function probeCanvas(source, turns) {
   return canvas;
 }
 
-/** Returns how many quarter-turns clockwise bring the page upright. */
+/**
+ * Works out how many quarter-turns clockwise bring the page upright.
+ *
+ * Returns that count along with the recognition result from the winning pass
+ * and the size of the image it was measured on, so page detection can reuse
+ * it rather than running recognition again.
+ */
 export async function detectOrientation(worker, source) {
-  let bestTurns = 0;
-  let bestConfidence = -1;
+  let best = { turns: 0, confidence: -1, blocks: null, width: 0, height: 0 };
 
   for (let turns = 0; turns < 4; turns += 1) {
     const probe = probeCanvas(source, turns);
     try {
       const { data } = await worker.recognize(probe, {}, PROBE_OUTPUT);
-      if (data.confidence > bestConfidence) {
-        bestConfidence = data.confidence;
-        bestTurns = turns;
+      if (data.confidence > best.confidence) {
+        best = {
+          turns,
+          confidence: data.confidence,
+          blocks: data.blocks,
+          width: probe.width,
+          height: probe.height,
+        };
       }
     } finally {
       probe.width = 0;
       probe.height = 0;
     }
 
-    if (turns === 0 && bestConfidence >= CONFIDENT_ENOUGH) return 0;
+    if (turns === 0 && best.confidence >= CONFIDENT_ENOUGH) break;
   }
 
-  return bestTurns;
+  return best;
 }

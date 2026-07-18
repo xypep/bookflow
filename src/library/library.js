@@ -3,6 +3,7 @@ import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { scanPages, getWorker } from "../scanner/scanner.js";
 import { detectOrientation, rotateCanvas } from "../scanner/orientation.js";
+import { detectPageCorners } from "../scanner/pageDetection.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
 import { AVAILABLE_LANGUAGES, getLanguages, setLanguages } from "../scanner/languages.js";
 import { cropAndStraighten } from "../scanner/cropper.js";
@@ -51,6 +52,13 @@ export async function renderLibrary(container) {
         <div class="modal-content scan-status">
           <p id="scan-status-text">Scanning…</p>
         </div>
+      </div>
+
+      <!-- Non-blocking counterpart to the overlay above, for the short steps
+           between the shutter and the crop screen. -->
+      <div id="scan-toast" class="scan-toast hidden">
+        <span class="scan-toast-spinner"></span>
+        <span id="scan-toast-text"></span>
       </div>
     </div>
   `;
@@ -215,24 +223,33 @@ async function straightenCapture(image, container) {
   bitmap.close();
 
   let upright = canvas;
+  let corners = null;
 
   // Orientation detection takes a moment, and the very first scan also has to
   // fetch the language data. Without this the app just sits there looking
   // broken between the shutter and the crop screen.
-  setScanStatus(container, "Preparing page…");
-  toggleScanOverlay(container, true);
+  toggleScanToast(container, "Preparing page…");
 
   try {
-    const turns = await detectOrientation(await getWorker(), canvas);
-    upright = rotateCanvas(canvas, turns);
+    // One recognition pass settles the orientation and locates the text block:
+    // the winning probe's word boxes are exactly what page detection needs.
+    const probe = await detectOrientation(await getWorker(), canvas);
+    upright = rotateCanvas(canvas, probe.turns);
+
+    const detected = detectPageCorners(probe.blocks, probe.width, probe.height);
+    if (detected) {
+      const scale = upright.width / probe.width;
+      corners = detected.map(({ x, y }) => ({ x: x * scale, y: y * scale }));
+    }
   } catch (error) {
-    // Detection is a convenience — if it fails, crop the shot as taken.
+    // Both steps are conveniences — if either fails, fall back to placing the
+    // corners by hand on the shot as taken.
     console.error(error);
   } finally {
-    toggleScanOverlay(container, false);
+    toggleScanToast(container, null);
   }
 
-  return cropAndStraighten(upright);
+  return cropAndStraighten(upright, corners);
 }
 
 async function handleScan(event, container) {
@@ -286,6 +303,13 @@ function showScanResult(container, text) {
 
 function toggleScanOverlay(container, show) {
   container.querySelector("#scan-overlay").classList.toggle("hidden", !show);
+}
+
+// Pass a message to show it, or null to hide.
+function toggleScanToast(container, message) {
+  const toast = container.querySelector("#scan-toast");
+  if (message) container.querySelector("#scan-toast-text").textContent = message;
+  toast.classList.toggle("hidden", !message);
 }
 
 function setScanStatus(container, text) {
