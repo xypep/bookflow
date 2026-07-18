@@ -7,7 +7,9 @@ import { extractText, dehyphenate } from "./extract.js";
 // plain http on the local network where CORS/mixed content can be an issue.
 let workerPromise = null;
 
-function getWorker() {
+// Shared with the live camera preview so the multi-megabyte core and language
+// data are only ever loaded once.
+export function getWorker() {
   if (!workerPromise) {
     workerPromise = createWorker("deu+eng", undefined, {
       workerPath: "/tesseract/worker.min.js",

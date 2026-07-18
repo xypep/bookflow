@@ -236,58 +236,25 @@ textarea {
   object-fit: cover;
 }
 
-/* Marks the area to fill with text, without hiding what falls outside it. */
-.camera-guide {
+/* Live outlines around whatever the recognizer currently sees as text. */
+.camera-boxes {
   position: absolute;
-  inset: 12% 8% 22%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-}
-
-.camera-corner {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.9);
-}
-
-.camera-corner.top-left {
-  top: 0;
-  left: 0;
-  border-right: none;
-  border-bottom: none;
-}
-
-.camera-corner.top-right {
-  top: 0;
-  right: 0;
-  border-left: none;
-  border-bottom: none;
-}
-
-.camera-corner.bottom-left {
-  bottom: 0;
-  left: 0;
-  border-right: none;
-  border-top: none;
-}
-
-.camera-corner.bottom-right {
-  bottom: 0;
-  right: 0;
-  border-left: none;
-  border-top: none;
 }
 
 .camera-hint {
   position: absolute;
-  top: calc(12% - 2.4rem);
+  top: calc(env(safe-area-inset-top) + 20px);
   left: 0;
   right: 0;
   padding: 0 16px;
   text-align: center;
   color: #fff;
-  font-size: 0.85rem;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  font-size: 0.9rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 
 .camera-controls {
