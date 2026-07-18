@@ -6,12 +6,21 @@
 // those as words too, which is where the stray "SS", "DZ", "NG" columns down
 // a margin come from. They differ from real text mainly in confidence.
 
-const MIN_WORD_CONFIDENCE = 60;
+// Deliberately low. These thresholds were set when page edges were still in
+// frame and inventing words; cropping now removes that at the source, so the
+// filter only has to catch outright rubbish.
+//
+// The bar matters more than it looks: a dropped word leaves no trace, so
+// silently deleting real text is worse than passing through an obvious mangle
+// the reader can see and fix. Measured on a real page, a floor of 60 removed
+// "zwar", "schnell", "musste" and "Ihren" along with the noise.
+const MIN_WORD_CONFIDENCE = 30;
 
-// Very short tokens are the most common shape for edge noise, and a genuine
-// short word sitting in a real sentence normally scores far higher than this.
+// Very short tokens are the most common shape for edge noise, so they carry a
+// slightly higher bar — but not so high that a confidently-read "es" or "in"
+// gets thrown away with them.
 const SHORT_WORD_LENGTH = 2;
-const MIN_SHORT_WORD_CONFIDENCE = 80;
+const MIN_SHORT_WORD_CONFIDENCE = 50;
 
 function isReliable(word, minConfidence, minShortConfidence) {
   const text = word.text.trim();

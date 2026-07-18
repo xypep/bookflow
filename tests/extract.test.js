@@ -45,9 +45,18 @@ test("keeps short words that score well", () => {
 test("holds short tokens to a stricter bar than long ones", () => {
   // Both sit above the general threshold; only the long one is trustworthy at
   // that score, because short noise fragments routinely reach it.
-  const blocks = page(line(word("Campingplätzen", 65), word("Ds", 65)));
+  const blocks = page(line(word("Campingplätzen", 40), word("Ds", 40)));
 
   assert.equal(extractText(blocks), "Campingplätzen");
+});
+
+test("keeps a shakily-read word rather than silently losing it", () => {
+  // Measured from a real page: these scored in the 30s and 40s and are all
+  // genuine text. A gap in the middle of a sentence is invisible to the
+  // reader, so the bar sits below them.
+  const blocks = page(line(word("zwar", 49), word("schnell", 50), word("musste", 31)));
+
+  assert.equal(extractText(blocks), "zwar schnell musste");
 });
 
 test("separates paragraphs but keeps lines inside them", () => {
@@ -67,10 +76,10 @@ test("survives missing or empty structures", () => {
 });
 
 test("thresholds are configurable", () => {
-  const blocks = page(line(word("grenzwertig", 55)));
+  const blocks = page(line(word("grenzwertig", 25)));
 
   assert.equal(extractText(blocks), "");
-  assert.equal(extractText(blocks, { minWordConfidence: 50 }), "grenzwertig");
+  assert.equal(extractText(blocks, { minWordConfidence: 20 }), "grenzwertig");
 });
 
 test("rejoins a word split across a line break", () => {
