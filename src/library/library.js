@@ -25,7 +25,7 @@ export async function renderLibrary(container) {
 
       <details class="scan-languages">
         <summary>Scan languages</summary>
-        <p class="scan-languages-note">Each extra language slows scanning and can reduce accuracy for the others.</p>
+        <p class="scan-languages-note">All on by default. Turning some off makes scanning faster.</p>
         <div class="scan-languages-options">${languageCheckboxes()}</div>
       </details>
 

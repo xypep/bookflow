@@ -4,7 +4,7 @@
 // shot rather than repairing it afterwards.
 
 import { getWorker } from "./scanner.js";
-import { coverTransform, projectBox, significantBlocks, framingQuality } from "./detect.js";
+import { coverTransform, projectBox, wordBoxes, readingQuality } from "./detect.js";
 
 // getUserMedia is only exposed in a secure context, which rules out the plain
 // http origin used when testing over the local network.
@@ -15,21 +15,30 @@ export function isCameraAvailable() {
 const CAPTURE_TYPE = "image/jpeg";
 const CAPTURE_QUALITY = 0.95;
 
-// Layout analysis is run on a heavily reduced frame — it only has to locate
-// text, not read it, and this keeps the preview responsive.
-const DETECT_EDGE = 800;
-const DETECT_PAUSE = 250;
+// Word positions only exist once the text has actually been read, so the
+// preview runs full recognition. That is the expensive pass, which is why the
+// frame is reduced hard — enough to place words, not to archive them.
+const DETECT_EDGE = 700;
+const DETECT_PAUSE = 120;
 
-// Only layout is requested. Any output that needs actual recognition would
-// pull in the expensive pass and make the preview unusable.
-const DETECT_OUTPUT = { text: false, blocks: false, layoutBlocks: true };
+// Word-level output; the rendered plain text is not needed here.
+const DETECT_OUTPUT = { blocks: true, text: false };
 
-const QUALITY_HINTS = {
-  none: "Point the camera at a page",
-  small: "Move closer — the text should fill the frame",
-  cluttered: "Page edges are in shot — frame the text block alone",
-  good: "Looks good — hold steady and shoot",
-};
+// Confidence bands for the highlight colour, so it is visible at a glance
+// which words are being read cleanly and which are guesses.
+const SOLID_CONFIDENCE = 80;
+const FAIR_CONFIDENCE = 60;
+
+function wordColour(confidence) {
+  if (confidence >= SOLID_CONFIDENCE) return "rgba(74, 222, 128, 0.45)";
+  if (confidence >= FAIR_CONFIDENCE) return "rgba(251, 191, 36, 0.45)";
+  return "rgba(248, 113, 113, 0.45)";
+}
+
+function qualityHint({ level, solid, total }) {
+  if (level === "none") return "Point the camera at a page";
+  return `${solid} of ${total} words read cleanly`;
+}
 
 function buildOverlay() {
   const overlay = document.createElement("div");
@@ -68,7 +77,8 @@ function grabFrame(video) {
   });
 }
 
-function drawBoxes(canvas, boxes, quality) {
+// Each recognized word gets its own wash, tinted by how sure the reading is.
+function drawWords(canvas, words) {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
@@ -82,17 +92,11 @@ function drawBoxes(canvas, boxes, quality) {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const good = quality === "good";
-  // A wash over the region reads as "this is what I can see" far more
-  // immediately than an outline alone, which is easily lost against print.
-  ctx.fillStyle = good ? "rgba(74, 222, 128, 0.22)" : "rgba(251, 191, 36, 0.18)";
-  ctx.strokeStyle = good ? "#4ade80" : "#fbbf24";
-  ctx.lineWidth = 3;
-  ctx.setLineDash(good ? [] : [10, 8]);
-
-  for (const box of boxes) {
-    ctx.fillRect(box.left, box.top, box.width, box.height);
-    ctx.strokeRect(box.left, box.top, box.width, box.height);
+  for (const { box, confidence } of words) {
+    ctx.fillStyle = wordColour(confidence);
+    // Padded slightly so the wash reads as a highlighter stroke over the word
+    // rather than a tight box around it.
+    ctx.fillRect(box.left - 1, box.top - 1, box.width + 2, box.height + 2);
   }
 }
 
@@ -127,12 +131,14 @@ async function trackTextBlocks(video, canvas, hint, isRunning) {
       const { data } = await worker.recognize(frame, {}, DETECT_OUTPUT);
       if (!isRunning()) return;
 
-      const blocks = significantBlocks(data.layoutBlocks, frame.width, frame.height);
-      const quality = framingQuality(blocks, frame.width, frame.height);
+      const words = wordBoxes(data.blocks);
       const transform = coverTransform(frame.width, frame.height, canvas.clientWidth, canvas.clientHeight);
 
-      drawBoxes(canvas, blocks.map(({ bbox }) => projectBox(bbox, transform)), quality);
-      hint.textContent = QUALITY_HINTS[quality];
+      drawWords(
+        canvas,
+        words.map((word) => ({ box: projectBox(word.bbox, transform), confidence: word.confidence }))
+      );
+      hint.textContent = qualityHint(readingQuality(words));
 
       frame.width = 0;
       frame.height = 0;

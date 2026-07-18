@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { coverTransform, projectBox, significantBlocks, framingQuality } from "../src/scanner/detect.js";
+import { coverTransform, projectBox, wordBoxes, readingQuality } from "../src/scanner/detect.js";
 
-const box = (x0, y0, x1, y1) => ({ bbox: { x0, y0, x1, y1 } });
+const word = (text, confidence, bbox = { x0: 0, y0: 0, x1: 10, y1: 10 }) => ({ text, confidence, bbox });
+const page = (...words) => [{ paragraphs: [{ lines: [{ words }] }] }];
 
 test("cover scales by the axis that needs the most growth", () => {
   // A 4:3 frame shown in a taller portrait element has to be scaled to cover
@@ -24,9 +25,7 @@ test("cover centres the crop on both axes", () => {
 });
 
 test("a frame matching its element is left untouched", () => {
-  const transform = coverTransform(400, 300, 400, 300);
-
-  assert.deepEqual(transform, { scale: 1, offsetX: 0, offsetY: 0 });
+  assert.deepEqual(coverTransform(400, 300, 400, 300), { scale: 1, offsetX: 0, offsetY: 0 });
 });
 
 test("a box projects onto the displayed video", () => {
@@ -45,40 +44,77 @@ test("a box in a cropped frame shifts with the crop", () => {
   assert.equal(projected.width, 100);
 });
 
-test("specks are filtered out", () => {
-  const blocks = [box(0, 0, 400, 300), box(0, 0, 5, 5)];
+test("words are collected out of the nested result", () => {
+  const blocks = page(word("Anders", 94), word("als", 91));
 
-  assert.deepEqual(significantBlocks(blocks, 400, 300), [blocks[0]]);
-});
-
-test("filtering tolerates missing data", () => {
-  assert.deepEqual(significantBlocks(undefined, 400, 300), []);
-  assert.deepEqual(significantBlocks([{}], 400, 300), []);
-  assert.deepEqual(significantBlocks([box(0, 0, 100, 100)], 0, 0), []);
-});
-
-test("one dominant block reads as good framing", () => {
-  const blocks = significantBlocks([box(20, 20, 380, 280)], 400, 300);
-
-  assert.equal(framingQuality(blocks, 400, 300), "good");
-});
-
-test("scattered blocks read as cluttered", () => {
-  const blocks = significantBlocks(
-    [box(0, 0, 200, 150), box(210, 0, 400, 150), box(0, 160, 200, 300), box(210, 160, 400, 300)],
-    400,
-    300
+  assert.deepEqual(
+    wordBoxes(blocks).map((entry) => entry.text),
+    ["Anders", "als"]
   );
-
-  assert.equal(framingQuality(blocks, 400, 300), "cluttered");
 });
 
-test("a distant page reads as too small", () => {
-  const blocks = significantBlocks([box(150, 120, 250, 180)], 400, 300);
+test("guesswork is left out", () => {
+  const blocks = page(word("Anders", 94), word("SS", 18), word("DZ", 25));
 
-  assert.equal(framingQuality(blocks, 400, 300), "small");
+  assert.deepEqual(
+    wordBoxes(blocks).map((entry) => entry.text),
+    ["Anders"]
+  );
 });
 
-test("no blocks at all is reported as none", () => {
-  assert.equal(framingQuality([], 400, 300), "none");
+test("blank and box-less words are skipped", () => {
+  const blocks = page(word("   ", 95), { text: "kein bbox", confidence: 95 }, word("gut", 90));
+
+  assert.deepEqual(
+    wordBoxes(blocks).map((entry) => entry.text),
+    ["gut"]
+  );
+});
+
+test("collecting tolerates missing structures", () => {
+  assert.deepEqual(wordBoxes(undefined), []);
+  assert.deepEqual(wordBoxes([]), []);
+  assert.deepEqual(wordBoxes([{}]), []);
+  assert.deepEqual(wordBoxes([{ paragraphs: [{ lines: [{}] }] }]), []);
+});
+
+test("the confidence floor is adjustable", () => {
+  const blocks = page(word("grenzwertig", 25));
+
+  assert.deepEqual(wordBoxes(blocks), []);
+  assert.equal(wordBoxes(blocks, { minConfidence: 20 }).length, 1);
+});
+
+test("a page read confidently reports good", () => {
+  const words = Array.from({ length: 20 }, () => ({ confidence: 92 }));
+
+  assert.equal(readingQuality(words).level, "good");
+});
+
+test("a few good words are not enough on their own", () => {
+  // All confident, but too little text to judge the shot by.
+  const words = Array.from({ length: 4 }, () => ({ confidence: 95 }));
+
+  assert.equal(readingQuality(words).level, "fair");
+});
+
+test("a mostly shaky page reports poor", () => {
+  const words = [
+    ...Array.from({ length: 3 }, () => ({ confidence: 90 })),
+    ...Array.from({ length: 17 }, () => ({ confidence: 45 })),
+  ];
+
+  assert.equal(readingQuality(words).level, "poor");
+});
+
+test("quality reports the counts behind it", () => {
+  const words = [{ confidence: 95 }, { confidence: 95 }, { confidence: 40 }];
+  const quality = readingQuality(words);
+
+  assert.equal(quality.solid, 2);
+  assert.equal(quality.total, 3);
+});
+
+test("nothing recognized reports none", () => {
+  assert.deepEqual(readingQuality([]), { level: "none", solid: 0, total: 0 });
 });

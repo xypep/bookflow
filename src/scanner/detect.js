@@ -1,10 +1,10 @@
-// Geometry for the live text-block overlay. Kept free of DOM access so the
-// coordinate mapping — the part that is easy to get subtly wrong — can be
+// Geometry and filtering for the live word overlay. Kept free of DOM access so
+// the coordinate mapping — the part that is easy to get subtly wrong — can be
 // tested directly.
 
-// Blocks smaller than this share of the frame are speckle rather than text,
-// and drawing them would just make the overlay twitch.
-const MIN_BLOCK_AREA_RATIO = 0.005;
+// Below this the reading is guesswork, and highlighting it would only clutter
+// the preview.
+const MIN_WORD_CONFIDENCE = 30;
 
 /**
  * The video fills its element with `object-fit: cover`: scaled up until both
@@ -29,30 +29,39 @@ export function projectBox(bbox, { scale, offsetX, offsetY }) {
   };
 }
 
-export function significantBlocks(blocks, sourceWidth, sourceHeight) {
-  const frameArea = sourceWidth * sourceHeight;
-  if (!frameArea) return [];
+/** Flattens the nested recognition result down to the words worth drawing. */
+export function wordBoxes(blocks, { minConfidence = MIN_WORD_CONFIDENCE } = {}) {
+  const words = [];
 
-  return (blocks ?? []).filter(({ bbox }) => {
-    if (!bbox) return false;
-    const area = (bbox.x1 - bbox.x0) * (bbox.y1 - bbox.y0);
-    return area > 0 && area / frameArea >= MIN_BLOCK_AREA_RATIO;
-  });
+  for (const block of blocks ?? []) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        for (const word of line.words ?? []) {
+          if (!word.bbox || !word.text?.trim()) continue;
+          if (word.confidence < minConfidence) continue;
+
+          words.push({ bbox: word.bbox, confidence: word.confidence, text: word.text.trim() });
+        }
+      }
+    }
+  }
+  return words;
 }
 
 /**
- * Text framed well reads as one large block. Several scattered blocks usually
- * means page edges or the facing page are being picked up too, which is
- * exactly what degrades the scan.
+ * How well the current shot is being read, as a share of confidently
+ * recognized words. This is the signal that tells you to adjust before
+ * shooting rather than after.
  */
-export function framingQuality(blocks, sourceWidth, sourceHeight) {
-  if (!blocks.length) return "none";
+export function readingQuality(words) {
+  if (!words.length) return { level: "none", solid: 0, total: 0 };
 
-  const frameArea = sourceWidth * sourceHeight;
-  const largest = Math.max(
-    ...blocks.map(({ bbox }) => (bbox.x1 - bbox.x0) * (bbox.y1 - bbox.y0))
-  );
+  const solid = words.filter((word) => word.confidence >= 80).length;
+  const share = solid / words.length;
 
-  if (largest / frameArea < 0.15) return "small";
-  return blocks.length <= 2 ? "good" : "cluttered";
+  let level = "poor";
+  if (share >= 0.8 && solid >= 10) level = "good";
+  else if (share >= 0.5) level = "fair";
+
+  return { level, solid, total: words.length };
 }

@@ -13,7 +13,9 @@ export const AVAILABLE_LANGUAGES = [
   { code: "ita", label: "Italian" },
 ];
 
-const DEFAULT_LANGUAGES = ["deu", "eng"];
+// All supported languages are on by default: a book in an unexpected language
+// should just work. The selection exists to narrow it down if scans feel slow.
+const DEFAULT_LANGUAGES = AVAILABLE_LANGUAGES.map(({ code }) => code);
 
 const isKnown = (code) => AVAILABLE_LANGUAGES.some((language) => language.code === code);
 

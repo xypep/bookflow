@@ -13,11 +13,13 @@ const { getLanguages, setLanguages, languageString, AVAILABLE_LANGUAGES } = awai
   "../src/scanner/languages.js"
 );
 
-test("defaults to German and English", () => {
+const ALL = ["deu", "eng", "spa", "fra", "ita"];
+
+test("defaults to every supported language", () => {
   store.clear();
 
-  assert.deepEqual(getLanguages(), ["deu", "eng"]);
-  assert.equal(languageString(), "deu+eng");
+  assert.deepEqual(getLanguages(), ALL);
+  assert.equal(languageString(), ALL.join("+"));
 });
 
 test("a selection round-trips", () => {
@@ -31,7 +33,7 @@ test("clearing everything falls back to the default", () => {
   store.clear();
   setLanguages([]);
 
-  assert.deepEqual(getLanguages(), ["deu", "eng"]);
+  assert.deepEqual(getLanguages(), ALL);
 });
 
 test("unknown codes are discarded", () => {
@@ -45,21 +47,21 @@ test("a selection of only unknown codes falls back", () => {
   store.clear();
   setLanguages(["klingon"]);
 
-  assert.deepEqual(getLanguages(), ["deu", "eng"]);
+  assert.deepEqual(getLanguages(), ALL);
 });
 
 test("corrupt storage falls back instead of throwing", () => {
   store.clear();
   store.set("book-flow-ocr-languages", "{not json");
 
-  assert.deepEqual(getLanguages(), ["deu", "eng"]);
+  assert.deepEqual(getLanguages(), ALL);
 });
 
 test("a non-array value falls back", () => {
   store.clear();
   store.set("book-flow-ocr-languages", '"deu"');
 
-  assert.deepEqual(getLanguages(), ["deu", "eng"]);
+  assert.deepEqual(getLanguages(), ALL);
 });
 
 test("the language string keeps a stable order regardless of input order", () => {
