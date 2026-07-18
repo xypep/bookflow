@@ -30,9 +30,27 @@ function isReliable(word, minConfidence, minShortConfidence) {
   return word.confidence >= required;
 }
 
+// Words are placed by the horizontal centre of their box, so one straddling a
+// boundary lands on the side it mostly sits on.
+function isWithin(word, column) {
+  if (!column) return true;
+  if (!word.bbox) return false;
+
+  const centre = (word.bbox.x0 + word.bbox.x1) / 2;
+  return centre >= column.x0 && centre <= column.x1;
+}
+
+/**
+ * Rebuilds page text from recognition output.
+ *
+ * `options.column` restricts it to one horizontal band, which is how the two
+ * halves of a scanned spread are read separately — without it the recognizer's
+ * lines run straight across the gutter and the two pages interleave.
+ */
 export function extractText(blocks, options = {}) {
   const minConfidence = options.minWordConfidence ?? MIN_WORD_CONFIDENCE;
   const minShortConfidence = options.minShortWordConfidence ?? MIN_SHORT_WORD_CONFIDENCE;
+  const { column } = options;
   const paragraphs = [];
 
   for (const block of blocks ?? []) {
@@ -42,6 +60,7 @@ export function extractText(blocks, options = {}) {
       for (const line of paragraph.lines ?? []) {
         const words = (line.words ?? [])
           .filter((word) => isReliable(word, minConfidence, minShortConfidence))
+          .filter((word) => isWithin(word, column))
           .map((word) => word.text.trim());
 
         if (words.length) lines.push(words.join(" "));

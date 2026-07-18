@@ -6,9 +6,15 @@
 // whole chapter at a time, so these pages skip the crop step entirely and go
 // straight to recognition.
 
-// Matches the cap used elsewhere: past roughly 16.7 megapixels Safari stops
-// allocating canvases, and recognition gains nothing above this anyway.
-const MAX_EDGE = 2400;
+// Rendered larger than a photo would be, because a document scanner captures
+// an open book as one sheet: two pages then share the width, and at 2400 each
+// gets far too few pixels per character. A PDF is a vector source, so the
+// resolution is there for the asking.
+const MAX_EDGE = 3400;
+
+// Safari stops allocating canvases somewhere around 16.7 megapixels, and gets
+// unhappy well before that on a phone, so the area is capped short of it.
+const MAX_PIXELS = 10_000_000;
 
 let pdfjsPromise = null;
 
@@ -39,9 +45,11 @@ function renderToCanvas(page) {
 
   // A PDF page is measured in points, so it has to be rendered well above 1:1
   // to give recognition enough pixels to work with.
-  const viewport = page.getViewport({
-    scale: MAX_EDGE / Math.max(unscaled.width, unscaled.height),
-  });
+  const scale = Math.min(
+    MAX_EDGE / Math.max(unscaled.width, unscaled.height),
+    Math.sqrt(MAX_PIXELS / (unscaled.width * unscaled.height))
+  );
+  const viewport = page.getViewport({ scale });
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(viewport.width);

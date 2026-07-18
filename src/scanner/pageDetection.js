@@ -156,6 +156,101 @@ export function tiltedBounds(words, angle, marginRatio = MARGIN_RATIO) {
   ];
 }
 
+// A spread splits roughly evenly. Measured on a real photo, a fragment of the
+// facing page came to about a quarter of the main column, so requiring the
+// smaller half to be at least this share of the larger keeps them apart.
+const SPREAD_BALANCE = 0.5;
+
+// Resolution of the density profile used to locate the gutter.
+const PROFILE_BUCKETS = 60;
+
+// The gutter is looked for here, as a fraction of image width. A book is held
+// roughly centred, and searching the whole width would find the blank margins
+// outside the text instead.
+const GUTTER_SEARCH = [0.3, 0.7];
+
+const extentOf = (words) => ({
+  x0: Math.min(...words.map((w) => w.bbox.x0)),
+  x1: Math.max(...words.map((w) => w.bbox.x1)),
+});
+
+/**
+ * Locates the gutter as the emptiest vertical band near the middle.
+ *
+ * A fixed gap threshold was tried first and does not work: measured on a real
+ * spread the gutter was only about 50px of a 1280px image — narrower than any
+ * threshold safe enough not to split ordinary paragraph spacing — while the
+ * widest gap in the picture sat off at the left margin among stray words. The
+ * gutter is reliably the *emptiest* place near the centre, though, even when
+ * it is narrow.
+ */
+function findGutter(words, width) {
+  const buckets = new Array(PROFILE_BUCKETS).fill(0);
+  for (const { bbox } of words) {
+    const centre = (bbox.x0 + bbox.x1) / 2;
+    const index = Math.floor((centre / width) * PROFILE_BUCKETS);
+    buckets[Math.min(PROFILE_BUCKETS - 1, Math.max(0, index))] += 1;
+  }
+
+  const from = Math.floor(PROFILE_BUCKETS * GUTTER_SEARCH[0]);
+  const to = Math.ceil(PROFILE_BUCKETS * GUTTER_SEARCH[1]);
+
+  // The middle of the longest near-empty run, so the split lands in the centre
+  // of the gutter rather than against the text on one side.
+  const peak = Math.max(...buckets);
+  const empty = (index) => buckets[index] <= peak * 0.1;
+
+  let best = null;
+  let runStart = null;
+
+  for (let i = from; i <= to; i += 1) {
+    if (empty(i)) {
+      if (runStart === null) runStart = i;
+      const length = i - runStart + 1;
+      if (!best || length > best.length) best = { start: runStart, length };
+    } else {
+      runStart = null;
+    }
+  }
+
+  if (!best) return null;
+  return ((best.start + best.length / 2) / PROFILE_BUCKETS) * width;
+}
+
+/**
+ * Horizontal extents of the pages visible in the image: one entry for a single
+ * page, two for an open spread, ordered left to right — reading order.
+ *
+ * A document scanner treats an open book as one sheet, so a spread arrives as
+ * a single image. Splitting it means each page is read on its own instead of
+ * the recognizer running lines straight across the gutter.
+ */
+export function detectPageColumns(blocks, width) {
+  const words = collectWords(blocks);
+  if (words.length < MIN_WORDS) return [];
+
+  const main = clusterByColumn(words, width)
+    .filter((cluster) => cluster.length >= MIN_WORDS)
+    .sort((a, b) => b.length - a.length)[0];
+
+  if (!main) return [];
+
+  const gutter = findGutter(words, width);
+  if (gutter !== null) {
+    const centre = ({ bbox }) => (bbox.x0 + bbox.x1) / 2;
+    const left = words.filter((word) => centre(word) < gutter);
+    const right = words.filter((word) => centre(word) >= gutter);
+    const smaller = Math.min(left.length, right.length);
+    const larger = Math.max(left.length, right.length);
+
+    if (smaller >= MIN_WORDS && smaller >= larger * SPREAD_BALANCE) {
+      return [extentOf(left), extentOf(right)];
+    }
+  }
+
+  return [extentOf(main)];
+}
+
 function quadArea(quad) {
   let total = 0;
   for (let i = 0; i < 4; i += 1) {

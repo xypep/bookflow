@@ -1,6 +1,7 @@
 import { createWorker } from "tesseract.js";
 import { toGrayscale, adaptiveThreshold, grayToRgba } from "./binarize.js";
 import { extractText, dehyphenate } from "./extract.js";
+import { detectPageColumns } from "./pageDetection.js";
 import { languageString } from "./languages.js";
 
 // Worker + wasm core are self-hosted (see public/tesseract) instead of the
@@ -118,19 +119,35 @@ const WORD_OUTPUT = { blocks: true, text: false };
 // slight tilt costs accuracy. Tesseract can measure and correct the skew.
 const RECOGNIZE_OPTIONS = { rotateAuto: true };
 
+// A document scanner treats an open book as one sheet, so a spread arrives as
+// a single image. Reading it as one page would run lines across the gutter and
+// interleave the two; splitting on the detected columns keeps them apart and
+// in reading order.
+function textFromResult(result, width) {
+  const columns = detectPageColumns(result.blocks, width);
+
+  if (columns.length < 2) return extractText(result.blocks);
+
+  return columns
+    .map((column) => extractText(result.blocks, { column }).trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 async function recognizePage(worker, file) {
   const raw = await loadCanvas(file);
   const cleaned = binarizeCanvas(raw);
+  const { width } = raw;
 
   try {
     const cleanedResult = (await worker.recognize(cleaned, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
     if (cleanedResult.confidence >= LOW_CONFIDENCE) {
-      return extractText(cleanedResult.blocks);
+      return textFromResult(cleanedResult, width);
     }
 
     const rawResult = (await worker.recognize(raw, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
     const better = rawResult.confidence > cleanedResult.confidence ? rawResult : cleanedResult;
-    return extractText(better.blocks);
+    return textFromResult(better, width);
   } finally {
     release(cleaned);
     release(raw);
