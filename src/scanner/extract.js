@@ -48,6 +48,10 @@ export function extractText(blocks, options = {}) {
 // Rejoins words split by a line-break hyphen. Anything the confidence filter
 // left behind between the hyphen and the break is tolerated, since margin
 // noise regularly lands exactly there.
+//
+// Matching is on the Unicode letter property rather than \w, which covers only
+// ASCII — German text breaks across umlauts often enough that leaving them out
+// silently kept those words split.
 export function dehyphenate(text) {
-  return text.replace(/(\w)-[^\S\n]*\n[^\S\n]*(\w)/g, "$1$2");
+  return text.replace(/(\p{L})-[^\S\n]*\n[^\S\n]*(\p{L})/gu, "$1$2");
 }

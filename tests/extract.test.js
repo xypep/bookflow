@@ -82,6 +82,13 @@ test("rejoins across leftover spacing at the break", () => {
   assert.equal(dehyphenate("zuge-  \n  wiesen"), "zugewiesen");
 });
 
+test("rejoins across an umlaut on either side of the break", () => {
+  assert.equal(dehyphenate("durchzumanö-\nvrieren"), "durchzumanövrieren");
+  assert.equal(dehyphenate("Mü-\nhe"), "Mühe");
+  assert.equal(dehyphenate("Grö-\nße"), "Größe");
+  assert.equal(dehyphenate("Stra-\nße"), "Straße");
+});
+
 test("leaves a genuine hyphenated compound alone", () => {
   assert.equal(dehyphenate("Nord-Süd-Achse"), "Nord-Süd-Achse");
 });
