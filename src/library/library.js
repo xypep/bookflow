@@ -4,6 +4,7 @@ import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { scanPages } from "../scanner/scanner.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
 import { AVAILABLE_LANGUAGES, getLanguages, setLanguages } from "../scanner/languages.js";
+import { cropAndStraighten } from "../scanner/cropper.js";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
@@ -189,16 +190,35 @@ async function startScan(container) {
   if (capture === "files") {
     pickImageFile(container);
   } else if (capture) {
-    await runScan([capture], container);
+    const straightened = await straightenCapture(capture);
+    if (straightened) await runScan([straightened], container);
   }
 }
 
-function handleScan(event, container) {
+// Cropping to one page and squaring it up is what makes a page inside a bound
+// book readable: it removes the facing page and the curved area near the
+// spine, and undoes the angle the photo was taken at.
+async function straightenCapture(image) {
+  const bitmap = await createImageBitmap(image, { imageOrientation: "from-image" });
+  try {
+    return await cropAndStraighten(bitmap);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function handleScan(event, container) {
   const files = Array.from(event.target.files);
   // Cleared up front so picking the same file twice still fires a change.
   event.target.value = "";
 
-  if (files.length) runScan(files, container);
+  const prepared = [];
+  for (const file of files) {
+    const straightened = await straightenCapture(file);
+    if (straightened) prepared.push(straightened);
+  }
+
+  if (prepared.length) await runScan(prepared, container);
 }
 
 async function runScan(files, container) {
