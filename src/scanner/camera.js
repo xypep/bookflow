@@ -82,11 +82,16 @@ function drawBoxes(canvas, boxes, quality) {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  ctx.strokeStyle = quality === "good" ? "#4ade80" : "#fbbf24";
+  const good = quality === "good";
+  // A wash over the region reads as "this is what I can see" far more
+  // immediately than an outline alone, which is easily lost against print.
+  ctx.fillStyle = good ? "rgba(74, 222, 128, 0.22)" : "rgba(251, 191, 36, 0.18)";
+  ctx.strokeStyle = good ? "#4ade80" : "#fbbf24";
   ctx.lineWidth = 3;
-  ctx.setLineDash(quality === "good" ? [] : [10, 8]);
+  ctx.setLineDash(good ? [] : [10, 8]);
 
   for (const box of boxes) {
+    ctx.fillRect(box.left, box.top, box.width, box.height);
     ctx.strokeRect(box.left, box.top, box.width, box.height);
   }
 }
