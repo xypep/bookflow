@@ -1,4 +1,5 @@
 import { createWorker } from "tesseract.js";
+import { toGrayscale, adaptiveThreshold, grayToRgba } from "./binarize.js";
 
 // Worker + wasm core are self-hosted (see public/tesseract) instead of the
 // default jsDelivr CDN, so scanning also works when the app is opened over
@@ -42,11 +43,7 @@ function fitDimensions(width, height) {
   };
 }
 
-// Plain phone photos (no perspective correction, uneven lighting) recognize
-// noticeably worse than scanner-app output. Converting to grayscale and
-// stretching contrast around the midpoint gives Tesseract a cleaner,
-// more binary-looking image to work with and measurably helps accuracy.
-async function preprocessImage(file) {
+async function loadCanvas(file) {
   // "from-image" applies the EXIF rotation. Without it, portrait photos reach
   // Tesseract sideways, where text is essentially unrecognizable.
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -55,25 +52,58 @@ async function preprocessImage(file) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(bitmap, 0, 0, width, height);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const { data } = imageData;
-  const contrast = 1.4;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    const stretched = Math.min(255, Math.max(0, (gray - 128) * contrast + 128));
-    data[i] = stretched;
-    data[i + 1] = stretched;
-    data[i + 2] = stretched;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
   return canvas;
+}
+
+function binarizeCanvas(source) {
+  const { width, height } = source;
+  const sourceData = source.getContext("2d").getImageData(0, 0, width, height);
+  const gray = toGrayscale(sourceData.data, width, height);
+  const binary = adaptiveThreshold(gray, width, height);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const output = new ImageData(width, height);
+  grayToRgba(binary, output.data);
+  canvas.getContext("2d").putImageData(output, 0, 0);
+
+  return canvas;
+}
+
+// Frees the backing store right away rather than waiting for GC; a pair of
+// full-page canvases is tens of megabytes on a phone.
+function release(canvas) {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+// Cleanup helps typical printed pages, but it can work against unusual
+// typefaces with very thin or ornamental strokes. Rather than guessing, the
+// cleaned image is tried first and the original is only re-run when Tesseract
+// reports low confidence — then whichever read better is kept.
+const LOW_CONFIDENCE = 75;
+
+async function recognizePage(worker, file) {
+  const raw = await loadCanvas(file);
+  const cleaned = binarizeCanvas(raw);
+
+  try {
+    const cleanedResult = (await worker.recognize(cleaned)).data;
+    if (cleanedResult.confidence >= LOW_CONFIDENCE) {
+      return cleanedResult.text;
+    }
+
+    const rawResult = (await worker.recognize(raw)).data;
+    return rawResult.confidence > cleanedResult.confidence ? rawResult.text : cleanedResult.text;
+  } finally {
+    release(cleaned);
+    release(raw);
+  }
 }
 
 // Runs OCR over each page image in order and joins the recognized text,
@@ -84,9 +114,8 @@ export async function scanPages(files, onProgress) {
 
   for (let i = 0; i < files.length; i += 1) {
     onProgress?.(i + 1, files.length);
-    const canvas = await preprocessImage(files[i]);
-    const { data } = await worker.recognize(canvas);
-    pageTexts.push(cleanOcrText(data.text).trim());
+    const text = await recognizePage(worker, files[i]);
+    pageTexts.push(cleanOcrText(text).trim());
   }
 
   return pageTexts.join("\n\n");
