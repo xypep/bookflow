@@ -15,7 +15,7 @@ export async function renderLibrary(container) {
 
       <div class="add-book">
         <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
-        <input type="file" id="scan-input" accept="image/*" multiple hidden />
+        <input type="file" id="scan-input" accept="image/*" hidden />
         <button id="upload-button">Upload .txt / .md</button>
         <button id="scan-button">Scan document</button>
         <button id="paste-button">Paste text</button>
