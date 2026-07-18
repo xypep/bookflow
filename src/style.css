@@ -209,3 +209,97 @@ textarea {
   background: var(--color-surface);
   color: var(--color-text);
 }
+
+/* Reader screen */
+
+.reader-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.reader-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.wpm-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wpm-control button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.3rem;
+}
+
+#wpm-value {
+  min-width: 90px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-tap-zones {
+  flex: 1;
+  display: flex;
+  position: relative;
+}
+
+.tap-zone {
+  flex: 1;
+}
+
+.word-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 16px;
+}
+
+.rsvp-word {
+  display: flex;
+  width: 100%;
+  font-size: clamp(2rem, 8vw, 4rem);
+  font-weight: 600;
+  white-space: pre;
+}
+
+.word-before {
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.word-orp {
+  color: var(--color-accent);
+}
+
+.word-after {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--color-border);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  width: 0%;
+}
