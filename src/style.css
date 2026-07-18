@@ -339,6 +339,12 @@ textarea {
   min-height: 0;
 }
 
+/* Sized to the drawn photo, so handles placed at image coordinates land on
+   the image rather than being offset by however far it is centred. */
+.cropper-frame {
+  position: relative;
+}
+
 .cropper-canvas {
   display: block;
   touch-action: none;

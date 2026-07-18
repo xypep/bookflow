@@ -20,10 +20,16 @@ function buildOverlay() {
   overlay.className = "cropper-overlay";
   overlay.innerHTML = `
     <div class="cropper-stage">
-      <canvas class="cropper-canvas"></canvas>
-      ${CORNER_LABELS.map(
-        (label, index) => `<button type="button" class="cropper-handle" data-corner="${index}" aria-label="Move ${label} corner"></button>`
-      ).join("")}
+      <!-- The frame is sized to the drawn photo so handle coordinates and
+           image coordinates are the same thing; positioning them against the
+           stage instead leaves them offset by however far the photo is
+           centred, which puts them out of reach off-screen. -->
+      <div class="cropper-frame">
+        <canvas class="cropper-canvas"></canvas>
+        ${CORNER_LABELS.map(
+          (label, index) => `<button type="button" class="cropper-handle" data-corner="${index}" aria-label="Move ${label} corner"></button>`
+        ).join("")}
+      </div>
     </div>
     <p class="cropper-hint">Drag the corners onto the page, then straighten</p>
     <div class="cropper-controls">
@@ -67,6 +73,7 @@ export function cropAndStraighten(imageBitmap) {
 
     const canvas = overlay.querySelector(".cropper-canvas");
     const stage = overlay.querySelector(".cropper-stage");
+    const frame = overlay.querySelector(".cropper-frame");
     const handles = [...overlay.querySelectorAll(".cropper-handle")];
 
     // The photo is drawn at a size that fits the screen; the quad is tracked in
@@ -84,6 +91,8 @@ export function cropAndStraighten(imageBitmap) {
     canvas.height = shownHeight;
     canvas.style.width = `${shownWidth}px`;
     canvas.style.height = `${shownHeight}px`;
+    frame.style.width = `${shownWidth}px`;
+    frame.style.height = `${shownHeight}px`;
 
     const quad = initialQuad(shownWidth, shownHeight);
 

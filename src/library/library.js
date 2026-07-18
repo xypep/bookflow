@@ -191,7 +191,7 @@ async function startScan(container) {
   if (capture === "files") {
     pickImageFile(container);
   } else if (capture) {
-    const straightened = await straightenCapture(capture);
+    const straightened = await straightenCapture(capture, container);
     if (straightened) await runScan([straightened], container);
   }
 }
@@ -204,7 +204,7 @@ const MAX_SOURCE_EDGE = 4000;
 // book readable: it removes the facing page and the curved area near the
 // spine, and undoes the angle the photo was taken at. Orientation is settled
 // first, so the corners are dragged on an upright page.
-async function straightenCapture(image) {
+async function straightenCapture(image, container) {
   const bitmap = await createImageBitmap(image, { imageOrientation: "from-image" });
 
   const factor = Math.min(1, MAX_SOURCE_EDGE / Math.max(bitmap.width, bitmap.height));
@@ -215,12 +215,21 @@ async function straightenCapture(image) {
   bitmap.close();
 
   let upright = canvas;
+
+  // Orientation detection takes a moment, and the very first scan also has to
+  // fetch the language data. Without this the app just sits there looking
+  // broken between the shutter and the crop screen.
+  setScanStatus(container, "Preparing page…");
+  toggleScanOverlay(container, true);
+
   try {
     const turns = await detectOrientation(await getWorker(), canvas);
     upright = rotateCanvas(canvas, turns);
   } catch (error) {
     // Detection is a convenience — if it fails, crop the shot as taken.
     console.error(error);
+  } finally {
+    toggleScanOverlay(container, false);
   }
 
   return cropAndStraighten(upright);
@@ -233,7 +242,7 @@ async function handleScan(event, container) {
 
   const prepared = [];
   for (const file of files) {
-    const straightened = await straightenCapture(file);
+    const straightened = await straightenCapture(file, container);
     if (straightened) prepared.push(straightened);
   }
 
