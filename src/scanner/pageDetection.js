@@ -27,10 +27,18 @@ const MIN_WORDS = 15;
 const COLUMN_GAP_RATIO = 0.06;
 
 // TUNING, second knob: how much room to leave around the text, as a share of
-// the block's own size. Enough that descenders and the odd missed word are not
-// clipped, small enough to keep the facing page out. Raising this is the first
-// thing to try if scans start losing line beginnings.
-const MARGIN_RATIO = 0.04;
+// the block's own size.
+//
+// Swept against the real samples, scored on how much text survives the crop
+// rather than on the share read cleanly — a tight crop loses words while the
+// share among what remains stays flattering, so the percentage misleads here.
+// Retained words by margin: .02→559  .04→566  .05→578  .07→535  .09→592.
+//
+// 0.09 keeps marginally the most, but pulls roughly fifty words of the facing
+// page into one sample. 0.05 retains within noise of it and stays clean, so
+// that is the setting. Raise it if line beginnings start going missing; lower
+// it if text from the opposite page creeps in.
+const MARGIN_RATIO = 0.05;
 
 // A detected block covering less than this of the frame is more likely a stray
 // cluster than a page of body text.
@@ -112,7 +120,7 @@ const rotatePoint = (x, y, cx, cy, angle) => {
 };
 
 /** Smallest box around the words that follows the text's own tilt. */
-export function tiltedBounds(words, angle) {
+export function tiltedBounds(words, angle, marginRatio = MARGIN_RATIO) {
   const corners = words.flatMap(({ bbox }) => [
     { x: bbox.x0, y: bbox.y0 },
     { x: bbox.x1, y: bbox.y0 },
@@ -133,8 +141,8 @@ export function tiltedBounds(words, angle) {
   let minY = Math.min(...ys);
   let maxY = Math.max(...ys);
 
-  const padX = (maxX - minX) * MARGIN_RATIO;
-  const padY = (maxY - minY) * MARGIN_RATIO;
+  const padX = (maxX - minX) * marginRatio;
+  const padY = (maxY - minY) * marginRatio;
   minX -= padX;
   maxX += padX;
   minY -= padY;
@@ -181,7 +189,7 @@ function isPlausible(quad, width, height) {
  * Returns `null` whenever the evidence is too thin or the result implausible,
  * which the caller treats as "leave the handles where they were".
  */
-export function detectPageCorners(blocks, width, height) {
+export function detectPageCorners(blocks, width, height, { marginRatio = MARGIN_RATIO } = {}) {
   const words = collectWords(blocks);
   if (words.length < MIN_WORDS) return null;
 
@@ -193,7 +201,7 @@ export function detectPageCorners(blocks, width, height) {
   const main = clusters.reduce((best, cluster) => (cluster.length > best.length ? cluster : best));
   if (main.length < MIN_WORDS) return null;
 
-  const quad = tiltedBounds(main, textAngle(main));
+  const quad = tiltedBounds(main, textAngle(main), marginRatio);
   if (!isPlausible(quad, width, height)) return null;
 
   // Clamped last: a margin pushing a corner off-image would otherwise sample
