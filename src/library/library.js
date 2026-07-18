@@ -1,7 +1,8 @@
 import { addBook, getAllBooks, deleteBook } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
-import { scanPages, getWorker } from "../scanner/scanner.js";
+import { scanPages, scanPageStream, getWorker } from "../scanner/scanner.js";
+import { isPdf, readPdfPages } from "../scanner/pdf.js";
 import { detectOrientation, rotateCanvas } from "../scanner/orientation.js";
 import { detectPageCorners } from "../scanner/pageDetection.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
@@ -20,9 +21,11 @@ export async function renderLibrary(container) {
 
       <div class="add-book">
         <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
-        <input type="file" id="scan-input" accept="image/*" multiple hidden />
+        <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden />
+        <input type="file" id="scan-input" accept="image/*,application/pdf,.pdf" multiple hidden />
         <button id="upload-button">Upload .txt / .md</button>
         <button id="scan-button">Scan document</button>
+        <button id="pdf-button">Import PDF</button>
         <button id="paste-button">Paste text</button>
       </div>
 
@@ -82,6 +85,14 @@ export async function renderLibrary(container) {
 
   container.querySelector("#scan-input").addEventListener("change", (event) => {
     handleScan(event, container);
+  });
+
+  container.querySelector("#pdf-button").addEventListener("click", () => {
+    container.querySelector("#pdf-input").click();
+  });
+
+  container.querySelector("#pdf-input").addEventListener("change", (event) => {
+    handlePdf(event, container);
   });
 
   container.querySelector("#paste-button").addEventListener("click", () => {
@@ -273,9 +284,49 @@ async function handleScan(event, container) {
   const files = Array.from(event.target.files);
   // Cleared up front so picking the same file twice still fires a change.
   event.target.value = "";
+  if (!files.length) return;
 
-  if (files.length) await prepareAndScan(files, container);
+  // A PDF picked here is the scanner-app case, not a photo to crop.
+  if (files.every(isPdf)) {
+    await scanPdfFiles(files, container);
+    return;
+  }
+
+  await prepareAndScan(files.filter((file) => !isPdf(file)), container);
 }
+
+async function handlePdf(event, container) {
+  const files = Array.from(event.target.files);
+  event.target.value = "";
+  if (files.length) await scanPdfFiles(files, container);
+}
+
+// Pages from a document-scanner PDF are already cropped, straightened and
+// evened out, so they go straight to recognition — no crop screen, which is
+// the whole point when a chapter arrives as one file.
+async function scanPdfFiles(files, container) {
+  setScanStatus(container, "Reading PDF…");
+  toggleScanOverlay(container, true);
+
+  try {
+    const texts = [];
+    for (const file of files) {
+      texts.push(
+        await scanPageStream(readPdfPages(file), (number, total) => {
+          setScanStatus(container, `Scanning page ${number} of ${total}…`);
+        })
+      );
+    }
+
+    toggleScanOverlay(container, false);
+    showScanResult(container, texts.filter(Boolean).join("\n\n"));
+  } catch (error) {
+    toggleScanOverlay(container, false);
+    window.alert("Could not read that PDF. Please try again.");
+    console.error(error);
+  }
+}
+
 
 async function runScan(files, container) {
   toggleScanOverlay(container, true);

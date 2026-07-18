@@ -139,15 +139,29 @@ async function recognizePage(worker, file) {
 
 // Runs OCR over each page image in order and joins the recognized text,
 // so a multi-page scan becomes one continuous book text.
-export async function scanPages(files, onProgress) {
+export async function scanPages(images, onProgress) {
+  return scanPageStream(
+    (async function* () {
+      for (let i = 0; i < images.length; i += 1) yield { image: images[i], number: i + 1, total: images.length };
+    })(),
+    onProgress
+  );
+}
+
+/**
+ * Same, but driven by a stream of pages. A scanned book runs to hundreds of
+ * pages, and materializing them all as canvases first would exhaust a phone,
+ * so the source stays in control of producing one at a time.
+ */
+export async function scanPageStream(pages, onProgress) {
   const worker = await getWorker();
   const pageTexts = [];
 
-  for (let i = 0; i < files.length; i += 1) {
-    onProgress?.(i + 1, files.length);
-    const text = await recognizePage(worker, files[i]);
+  for await (const { image, number, total } of pages) {
+    onProgress?.(number, total);
+    const text = await recognizePage(worker, image);
     pageTexts.push(dehyphenate(text).trim());
   }
 
-  return pageTexts.join("\n\n");
+  return pageTexts.filter(Boolean).join("\n\n");
 }
