@@ -2,6 +2,13 @@ const DB_NAME = "book-flow";
 const DB_VERSION = 1;
 const STORE_NAME = "books";
 
+// crypto.randomUUID() only works in secure contexts (https or localhost), but
+// the app is also used over plain http on the local network (phone testing),
+// so we need an id generator that works everywhere.
+function generateId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 let dbPromise = null;
 
 function getDatabase() {
@@ -30,7 +37,7 @@ function promisifyRequest(request) {
 export async function addBook({ title, text, wordCount }) {
   const db = await getDatabase();
   const book = {
-    id: crypto.randomUUID(),
+    id: generateId(),
     title,
     text,
     wordCount,
