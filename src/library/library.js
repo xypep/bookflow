@@ -31,6 +31,7 @@ export async function renderLibrary(container) {
           <textarea id="paste-text" placeholder="Paste your book text here..."></textarea>
           <div class="modal-actions">
             <button id="paste-cancel">Cancel</button>
+            <button id="paste-scan-more">Scan more pages</button>
             <button id="paste-save">Save</button>
           </div>
         </div>
@@ -75,6 +76,10 @@ export async function renderLibrary(container) {
 
   container.querySelector("#paste-save").addEventListener("click", () => {
     handlePasteSave(container);
+  });
+
+  container.querySelector("#paste-scan-more").addEventListener("click", () => {
+    container.querySelector("#scan-input").click();
   });
 
   container.querySelector(".book-list").addEventListener("click", (event) => {
@@ -137,11 +142,19 @@ async function handleScan(event, container) {
 
     // Scanned text often needs a manual fix here and there (OCR isn't
     // perfect), so it's opened in the paste modal for review before saving
-    // instead of being saved straight away.
-    togglePasteModal(container, true, {
-      title: `Scan ${new Date().toLocaleDateString()}`,
-      text,
-    });
+    // instead of being saved straight away. If the modal is already open
+    // (via "Scan more pages"), the new pages are appended to the draft
+    // instead of replacing it, so a book can be built up scan by scan.
+    const modal = container.querySelector("#paste-modal");
+    if (modal.classList.contains("hidden")) {
+      togglePasteModal(container, true, {
+        title: `Scan ${new Date().toLocaleDateString()}`,
+        text,
+      });
+    } else {
+      const textarea = container.querySelector("#paste-text");
+      textarea.value = textarea.value ? `${textarea.value}\n\n${text}` : text;
+    }
   } catch (error) {
     toggleScanOverlay(container, false);
     window.alert("Scanning failed. Please try again.");

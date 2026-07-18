@@ -76,6 +76,16 @@ function clampWpm(wpm) {
   return Math.min(MAX_WPM, Math.max(MIN_WPM, wpm));
 }
 
+// Words beyond this length start shrinking so OCR artifacts (merged words,
+// long compounds) don't get clipped off-screen at full size.
+const COMFORTABLE_WORD_LENGTH = 10;
+const MIN_WORD_SCALE = 0.35;
+
+function wordScale(word) {
+  if (word.length <= COMFORTABLE_WORD_LENGTH) return 1;
+  return Math.max(MIN_WORD_SCALE, COMFORTABLE_WORD_LENGTH / word.length);
+}
+
 function renderWord() {
   const wordEl = document.getElementById("word");
   if (!wordEl) return;
@@ -83,6 +93,7 @@ function renderWord() {
   const word = state.words[state.index] ?? "";
   const orpIndex = Math.min(getOrpIndex(word), Math.max(word.length - 1, 0));
 
+  wordEl.style.setProperty("--word-scale", wordScale(word));
   wordEl.innerHTML =
     `<span class="word-before">${escapeHtml(word.slice(0, orpIndex))}</span>` +
     `<span class="word-orp">${escapeHtml(word[orpIndex] ?? "")}</span>` +
