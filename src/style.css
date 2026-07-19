@@ -1306,6 +1306,14 @@ textarea {
   font-weight: 800;
 }
 
+/* The coloured fixation letter and the emboldened opening are two ways of
+   pulling the eye to the same place, and together they fight each other. With
+   the setting on, the weight does the work and the colour steps aside — the
+   word stays positioned on its fixation point either way. */
+.rsvp-word.bionic .word-orp {
+  color: inherit;
+}
+
 /* Reader settings */
 
 .setting-row {
