@@ -122,11 +122,27 @@ test("the last read book is the one most recently started", () => {
   assert.equal(lastReadBookId(sessions), "newest");
 });
 
-test("continue offers the book last actually read", () => {
+test("continue offers the book last opened, even with no session for it", () => {
+  const books = [{ id: "a", progress: 0 }, { id: "b", progress: 40 }];
+  // A visit too short to be recorded still counts as the book being read:
+  // the session for "b" is the older one, but "a" is where the reader was.
+  const sessions = [session({ bookId: "b" })];
+
+  assert.equal(bookToContinue(books, sessions, "a").id, "a");
+});
+
+test("continue falls back to the last session when nothing was opened here", () => {
   const books = [{ id: "a", progress: 0 }, { id: "b", progress: 40 }];
   const sessions = [session({ bookId: "b" })];
 
-  assert.equal(bookToContinue(books, sessions).id, "b");
+  assert.equal(bookToContinue(books, sessions, null).id, "b");
+});
+
+test("a last-opened book that has since been deleted is ignored", () => {
+  const books = [{ id: "a", progress: 0 }, { id: "b", progress: 40 }];
+  const sessions = [session({ bookId: "b" })];
+
+  assert.equal(bookToContinue(books, sessions, "deleted-since").id, "b");
 });
 
 test("with no sessions it falls back to a book already started", () => {

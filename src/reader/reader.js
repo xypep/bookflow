@@ -3,6 +3,7 @@ import { tokenize, escapeHtml } from "../utils.js";
 import { getOrpIndex } from "./rsvp.js";
 import { findChapters, chapterAt } from "./chapters.js";
 import { startSession, pauseSession, countWord, endSession } from "../sessions/sessionTracker.js";
+import { setLastOpenedBookId } from "./recent.js";
 
 const WPM_STORAGE_KEY = "book-flow-wpm";
 const MODE_STORAGE_KEY = "book-flow-mode";
@@ -18,6 +19,10 @@ export async function renderReader(container, bookId) {
     window.location.hash = "#/library";
     return;
   }
+
+  // Opening the reader is what "started reading" means, whether or not the
+  // visit lasts long enough to become a session.
+  setLastOpenedBookId(book.id);
 
   const words = tokenize(book.text);
   const chapters = findChapters(book.text);

@@ -69,12 +69,20 @@ export function lastReadBookId(sessions) {
 }
 
 /**
- * What to offer on the home screen. Prefers the book last actually read;
- * falls back to one already started, then to the newest book — a fresh
- * install has no sessions but may well have books.
+ * What to offer on the home screen, most trustworthy signal first:
+ *
+ * 1. the book last opened in the reader — the direct answer, and the only one
+ *    that survives a visit too short to be recorded as a session;
+ * 2. the book of the most recent session — covers a library restored from an
+ *    export onto a device that has never opened the reader;
+ * 3. a book already started, then the newest one, for a library with no
+ *    reading history at all.
  */
-export function bookToContinue(books, sessions) {
+export function bookToContinue(books, sessions, lastOpenedId = null) {
   if (!books.length) return null;
+
+  const lastOpened = books.find((book) => book.id === lastOpenedId);
+  if (lastOpened) return lastOpened;
 
   const lastId = lastReadBookId(sessions);
   const lastRead = books.find((book) => book.id === lastId);

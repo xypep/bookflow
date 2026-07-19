@@ -4,6 +4,7 @@ import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { navBar, addSheet, bindAddSheet } from "../shell/nav.js";
 import { coverStyle, coverInitials } from "../library/covers.js";
 import { secondsOnDay, wordsOnDay, streakDays, overallWpm, bookToContinue } from "../sessions/stats.js";
+import { getLastOpenedBookId } from "../reader/recent.js";
 
 const GOAL_STORAGE_KEY = "book-flow-daily-goal";
 const GOAL_STEP = 5;
@@ -21,7 +22,7 @@ function clampGoal(minutes) {
 
 export async function renderHome(container) {
   const [books, sessions] = await Promise.all([getAllBooks(), getAllSessions()]);
-  const book = bookToContinue(books, sessions);
+  const book = bookToContinue(books, sessions, getLastOpenedBookId());
 
   container.innerHTML = `
     <div class="screen home-screen">
