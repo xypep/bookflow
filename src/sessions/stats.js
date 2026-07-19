@@ -68,6 +68,85 @@ export function lastReadBookId(sessions) {
   return done.reduce((latest, session) => (session.start > latest.start ? session : latest)).bookId;
 }
 
+export function totalSeconds(sessions) {
+  return finished(sessions).reduce((total, session) => total + session.durationSec, 0);
+}
+
+/**
+ * One entry per day for the last `days` days, oldest first, including days
+ * with nothing read — a gap in the chart has to be visible as a gap.
+ */
+export function dailyTotals(sessions, days = 7, date = new Date()) {
+  const byDay = new Map();
+  for (const session of finished(sessions)) {
+    const key = dayKey(session.start);
+    byDay.set(key, (byDay.get(key) ?? 0) + session.durationSec);
+  }
+
+  const out = [];
+  for (let back = days - 1; back >= 0; back -= 1) {
+    const day = new Date(date);
+    day.setDate(day.getDate() - back);
+    const key = dayKey(day);
+    out.push({ key, date: day, seconds: byDay.get(key) ?? 0, isToday: back === 0 });
+  }
+  return out;
+}
+
+/**
+ * Reading time per book, largest first. Books deleted since are dropped
+ * rather than shown as an unnamed slice.
+ */
+export function secondsByBook(sessions, books) {
+  const titles = new Map(books.map((book) => [book.id, book.title]));
+  const byBook = new Map();
+
+  for (const session of finished(sessions)) {
+    if (!titles.has(session.bookId)) continue;
+    byBook.set(session.bookId, (byBook.get(session.bookId) ?? 0) + session.durationSec);
+  }
+
+  return [...byBook.entries()]
+    .map(([bookId, seconds]) => ({ bookId, title: titles.get(bookId), seconds }))
+    .sort((a, b) => b.seconds - a.seconds);
+}
+
+/**
+ * Caps the number of coloured slices and folds the tail into one "Other"
+ * entry. Generating more hues past the palette would produce colours nobody
+ * with colour blindness could tell apart.
+ */
+export function capSlices(entries, limit = 5) {
+  if (entries.length <= limit) return entries;
+
+  const head = entries.slice(0, limit - 1);
+  const tail = entries.slice(limit - 1);
+  return [
+    ...head,
+    {
+      bookId: "__other__",
+      title: `${tail.length} more books`,
+      seconds: tail.reduce((total, entry) => total + entry.seconds, 0),
+    },
+  ];
+}
+
+export function isFinishedBook(book) {
+  const total = book.wordCount || 0;
+  return total > 1 && book.progress >= total - 1;
+}
+
+export function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 /**
  * What to offer on the home screen, most trustworthy signal first:
  *

@@ -3,8 +3,8 @@ import { renderLibrary } from "./library/library.js";
 import { renderReader, stopReader } from "./reader/reader.js";
 import { initTheme } from "./themes/themes.js";
 import { initSessionTracker } from "./sessions/sessionTracker.js";
-import { renderPlaceholder } from "./shell/placeholder.js";
 import { renderHome } from "./home/home.js";
+import { renderStats } from "./stats/stats.js";
 
 const app = document.querySelector("#app");
 
@@ -24,11 +24,7 @@ function router() {
   } else if (hash === "#/library") {
     renderLibrary(app);
   } else if (hash === "#/stats") {
-    renderPlaceholder(app, {
-      route: "#/stats",
-      title: "Stats",
-      note: "Your reading is already being recorded. The charts land here next.",
-    });
+    renderStats(app);
   } else {
     renderHome(app);
   }

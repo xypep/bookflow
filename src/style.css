@@ -13,6 +13,16 @@
   --color-border: #dcdcdc;
   --color-danger: #d64545;
 
+  /* Categorical series, slots 1-5 in fixed order. Validated against this
+     theme's card surface with the dataviz palette checker: CVD separation,
+     normal-vision floor and lightness band all pass. Contrast against a light
+     surface warns, which is why every slice carries a visible label. */
+  --series-1: #2a78d6;
+  --series-2: #008300;
+  --series-3: #e87ba4;
+  --series-4: #eda100;
+  --series-5: #1baf7a;
+
   color-scheme: light;
 }
 
@@ -26,6 +36,13 @@
   --color-elevated: #ddd0ad;
   --color-border: #d8c9a3;
   --color-danger: #a8442a;
+
+  /* Same five hues — they clear every check against the sepia surface too. */
+  --series-1: #2a78d6;
+  --series-2: #008300;
+  --series-3: #e87ba4;
+  --series-4: #eda100;
+  --series-5: #1baf7a;
 }
 
 :root[data-theme="dark"] {
@@ -38,6 +55,13 @@
   --color-elevated: #353945;
   --color-border: #2b2f39;
   --color-danger: #ff6b5b;
+
+  /* The same five hues re-stepped for the dark surface, not an inversion. */
+  --series-1: #3987e5;
+  --series-2: #008300;
+  --series-3: #d55181;
+  --series-4: #c98500;
+  --series-5: #199e70;
 
   color-scheme: dark;
 }
@@ -614,22 +638,197 @@ textarea {
   color: var(--color-muted);
 }
 
-/* Screens that are designed but not built yet */
+/* Stats screen */
 
-.placeholder-screen {
+.stats-screen {
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 16px;
+  padding-bottom: calc(104px + env(safe-area-inset-bottom));
   gap: 16px;
+  overflow-y: auto;
 }
 
-.placeholder-note {
-  margin: auto;
-  max-width: 22ch;
-  text-align: center;
+.kpi-row {
+  display: flex;
+  gap: 10px;
+}
+
+.kpi {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 12px;
+  border-radius: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.kpi dt {
+  font-size: 0.7rem;
   color: var(--color-muted);
-  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.kpi dd {
+  font-size: 1.3rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.kpi-of {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.kpi-note {
+  margin-top: 4px;
+  font-size: 0.66rem;
+  color: var(--color-muted);
+}
+
+.chart-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.chart-head h2 {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* Values wear text tokens, never the series colour. */
+.chart-readout {
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.chart-foot {
+  margin-top: 12px;
+  font-size: 0.7rem;
+  color: var(--color-muted);
+}
+
+/* Read time per day — one series, so no legend; the heading names it. */
+
+.day-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 132px;
+}
+
+.day-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+}
+
+.day-bar-track {
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+}
+
+/* Rounded data-end, square where it meets the baseline. */
+.day-bar-fill {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--color-elevated);
+  min-height: 0;
+}
+
+.day-bar.current .day-bar-fill {
+  background: var(--color-accent);
+}
+
+.day-bar.current .day-bar-label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.day-bar-label {
+  font-size: 0.62rem;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Part-to-whole across books — a bar, not a donut: the titles are long and
+   the values are often close. */
+
+.share-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  /* A surface-coloured gap keeps neighbouring fills from reading as one. */
+  gap: 2px;
+  background: var(--color-surface);
+}
+
+.share-segment {
+  height: 100%;
+}
+
+.legend {
+  list-style: none;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-value {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 /* Modal */

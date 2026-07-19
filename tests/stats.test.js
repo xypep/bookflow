@@ -9,6 +9,12 @@ import {
   overallWpm,
   lastReadBookId,
   bookToContinue,
+  totalSeconds,
+  dailyTotals,
+  secondsByBook,
+  capSlices,
+  isFinishedBook,
+  formatDuration,
 } from "../src/sessions/stats.js";
 
 // Sessions are built at local times, because a reading day is a local day and
@@ -166,4 +172,103 @@ test("a session pointing at a deleted book does not strand the home screen", () 
 
 test("an empty library offers nothing", () => {
   assert.equal(bookToContinue([], []), null);
+});
+
+/* Chart inputs */
+
+test("the daily series covers every day, including empty ones", () => {
+  const sessions = [
+    session({ start: at(2026, 7, 19), durationSec: 600 }),
+    session({ start: at(2026, 7, 16), durationSec: 300 }),
+  ];
+
+  const days = dailyTotals(sessions, 7, TODAY);
+
+  assert.equal(days.length, 7);
+  // Oldest first, so the chart reads left to right.
+  assert.deepEqual(days.map((d) => d.key.slice(-2)), ["13", "14", "15", "16", "17", "18", "19"]);
+  // A day with no reading is a visible zero, not a missing bar.
+  assert.deepEqual(days.map((d) => d.seconds), [0, 0, 0, 300, 0, 0, 600]);
+  assert.equal(days.at(-1).isToday, true);
+});
+
+test("several sessions on the same day add up in the series", () => {
+  const sessions = [
+    session({ start: at(2026, 7, 19, 8), durationSec: 300 }),
+    session({ start: at(2026, 7, 19, 21), durationSec: 240 }),
+  ];
+
+  assert.equal(dailyTotals(sessions, 7, TODAY).at(-1).seconds, 540);
+});
+
+test("time per book is ranked and titled", () => {
+  const books = [
+    { id: "a", title: "Echo" },
+    { id: "b", title: "Dune" },
+  ];
+  const sessions = [
+    session({ bookId: "a", durationSec: 300 }),
+    session({ bookId: "b", durationSec: 900 }),
+    session({ bookId: "a", durationSec: 200 }),
+  ];
+
+  assert.deepEqual(secondsByBook(sessions, books), [
+    { bookId: "b", title: "Dune", seconds: 900 },
+    { bookId: "a", title: "Echo", seconds: 500 },
+  ]);
+});
+
+test("sessions of a deleted book are left out rather than shown unnamed", () => {
+  const books = [{ id: "a", title: "Echo" }];
+  const sessions = [session({ bookId: "a" }), session({ bookId: "gone" })];
+
+  assert.deepEqual(secondsByBook(sessions, books).map((e) => e.bookId), ["a"]);
+});
+
+test("a short list of books is left alone", () => {
+  const entries = [1, 2, 3].map((n) => ({ bookId: `${n}`, title: `B${n}`, seconds: n }));
+
+  assert.deepEqual(capSlices(entries, 5), entries);
+});
+
+test("a long tail of books folds into one entry", () => {
+  const entries = [50, 40, 30, 20, 10, 5].map((s, i) => ({
+    bookId: `${i}`,
+    title: `B${i}`,
+    seconds: s,
+  }));
+
+  const capped = capSlices(entries, 5);
+
+  assert.equal(capped.length, 5);
+  assert.equal(capped.at(-1).title, "2 more books");
+  assert.equal(capped.at(-1).seconds, 15);
+  // Nothing may be lost in the fold, or the shares stop summing to the whole.
+  assert.equal(
+    capped.reduce((t, e) => t + e.seconds, 0),
+    entries.reduce((t, e) => t + e.seconds, 0)
+  );
+});
+
+test("a book counts as finished only at the last word", () => {
+  assert.equal(isFinishedBook({ wordCount: 400, progress: 399 }), true);
+  assert.equal(isFinishedBook({ wordCount: 400, progress: 398 }), false);
+  // An empty book must not count as finished just because 0 >= -1.
+  assert.equal(isFinishedBook({ wordCount: 0, progress: 0 }), false);
+});
+
+test("total time ignores a session still running", () => {
+  const sessions = [
+    session({ durationSec: 600 }),
+    session({ durationSec: 300, inProgress: true }),
+  ];
+
+  assert.equal(totalSeconds(sessions), 600);
+});
+
+test("durations read the way a person would say them", () => {
+  assert.equal(formatDuration(45), "45s");
+  assert.equal(formatDuration(600), "10m");
+  assert.equal(formatDuration(3600), "1h");
+  assert.equal(formatDuration(5040), "1h 24m");
 });
