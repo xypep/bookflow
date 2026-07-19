@@ -4,6 +4,7 @@ import { renderReader, stopReader } from "./reader/reader.js";
 import { initTheme } from "./themes/themes.js";
 import { initSessionTracker } from "./sessions/sessionTracker.js";
 import { renderPlaceholder } from "./shell/placeholder.js";
+import { renderHome } from "./home/home.js";
 
 const app = document.querySelector("#app");
 
@@ -29,11 +30,7 @@ function router() {
       note: "Your reading is already being recorded. The charts land here next.",
     });
   } else {
-    renderPlaceholder(app, {
-      route: "#/",
-      title: "Home",
-      note: "Your daily goal and what to read next will show up here.",
-    });
+    renderHome(app);
   }
 }
 
