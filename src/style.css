@@ -165,6 +165,8 @@ textarea {
   flex-direction: column;
   gap: 4px;
   user-select: text;
+  flex: 1;
+  min-width: 0;
 }
 
 .book-progress {
@@ -172,7 +174,8 @@ textarea {
   opacity: 0.7;
 }
 
-.delete-button {
+.delete-button,
+.export-button {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -181,6 +184,88 @@ textarea {
   color: var(--color-text);
   font-size: 1.2rem;
   line-height: 1;
+  flex-shrink: 0;
+}
+
+.export-button {
+  opacity: 0.7;
+}
+
+/* Backup and migration */
+
+.library-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.library-transfer button {
+  flex: 1;
+  min-width: 100px;
+  padding: 12px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.library-transfer button:disabled {
+  opacity: 0.4;
+}
+
+.library-notice {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 0.85rem;
+  user-select: text;
+}
+
+.library-notice.hidden,
+.import-conflict.hidden {
+  display: none;
+}
+
+.library-notice.error {
+  border-color: var(--color-accent);
+}
+
+.import-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-surface);
+}
+
+.import-conflict-title {
+  font-size: 0.9rem;
+}
+
+.import-conflict-detail {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.import-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.import-conflict-actions button {
+  flex: 1;
+  min-width: 90px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.85rem;
 }
 
 .empty-state {

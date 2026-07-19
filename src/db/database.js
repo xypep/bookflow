@@ -107,6 +107,19 @@ export async function updateProgress(id, progress) {
   await promisifyRequest(openStore(db, PROGRESS_STORE, "readwrite").put({ id, progress }));
 }
 
+// Used by the importer when overwriting a book the user already has: the id
+// stays, so its reading history keeps pointing at the same book.
+export async function replaceBookContent(id, { title, text, wordCount }) {
+  const db = await getDatabase();
+  const store = openStore(db, STORE_NAME, "readwrite");
+  const existing = await promisifyRequest(store.get(id));
+  if (!existing) return null;
+
+  const book = { ...existing, title, text, wordCount };
+  await promisifyRequest(openStore(db, STORE_NAME, "readwrite").put(book));
+  return book;
+}
+
 export async function deleteBook(id) {
   const db = await getDatabase();
   const transaction = db.transaction([STORE_NAME, PROGRESS_STORE, SESSION_STORE], "readwrite");
@@ -142,4 +155,22 @@ export async function getSessionsForBook(bookId) {
   const db = await getDatabase();
   const index = openStore(db, SESSION_STORE, "readonly").index("bookId");
   return promisifyRequest(index.getAll(bookId));
+}
+
+// Imported sessions merge by id: anything already stored wins, so re-importing
+// the same file is a no-op and local history is never dropped. Returns how many
+// were actually new.
+export async function mergeSessions(sessions) {
+  if (!sessions.length) return 0;
+
+  const db = await getDatabase();
+  const store = openStore(db, SESSION_STORE, "readwrite");
+  const existing = new Set(await promisifyRequest(store.getAllKeys()));
+  const fresh = sessions.filter((session) => !existing.has(session.id));
+
+  const transaction = db.transaction(SESSION_STORE, "readwrite");
+  await Promise.all(
+    fresh.map((session) => promisifyRequest(transaction.objectStore(SESSION_STORE).put(session)))
+  );
+  return fresh.length;
 }

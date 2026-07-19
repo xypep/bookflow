@@ -1,4 +1,14 @@
 import { addBook, getAllBooks, deleteBook } from "../db/database.js";
+import {
+  exportBook,
+  exportCollection,
+  exportFileName,
+  saveExport,
+  parseImportFile,
+  findConflict,
+  importEntry,
+  ImportError,
+} from "../transfer/bookTransfer.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getTheme, getThemeIcon, cycleTheme } from "../themes/themes.js";
 import { scanPages, scanPageStream, getWorker } from "../scanner/scanner.js";
@@ -28,6 +38,15 @@ export async function renderLibrary(container) {
         <button id="pdf-button">Import PDF</button>
         <button id="paste-button">Paste text</button>
       </div>
+
+      <div class="library-transfer">
+        <input type="file" id="import-input" accept=".json,application/json" hidden />
+        <button id="import-button">Import book file</button>
+        <button id="export-all-button" ${books.length ? "" : "disabled"}>Export all books</button>
+      </div>
+
+      <div id="library-notice" class="library-notice hidden" role="status"></div>
+      <div id="import-conflict" class="import-conflict hidden"></div>
 
       <details class="scan-languages">
         <summary>Scan languages</summary>
@@ -118,6 +137,168 @@ export async function renderLibrary(container) {
   container.querySelector(".book-list").addEventListener("click", (event) => {
     handleListClick(event, container);
   });
+
+  container.querySelector("#import-button").addEventListener("click", () => {
+    container.querySelector("#import-input").click();
+  });
+
+  container.querySelector("#import-input").addEventListener("change", (event) => {
+    handleImport(event, container);
+  });
+
+  container.querySelector("#export-all-button").addEventListener("click", () => {
+    handleExportAll(container);
+  });
+}
+
+/* Inline status line — never blocks, and replaces itself on the next message. */
+function showNotice(container, message, tone = "info") {
+  const notice = container.querySelector("#library-notice");
+  if (!notice) return;
+  notice.textContent = message;
+  notice.className = `library-notice ${tone}`;
+}
+
+function clearNotice(container) {
+  const notice = container.querySelector("#library-notice");
+  if (notice) notice.className = "library-notice hidden";
+}
+
+async function handleExportBook(id, container) {
+  const book = (await getAllBooks()).find((entry) => entry.id === id);
+  if (!book) return;
+
+  try {
+    const data = await exportBook(book);
+    const result = await saveExport(data, exportFileName(book.title));
+    if (result !== "cancelled") {
+      showNotice(container, `Exported “${book.title}”.`, "success");
+    }
+  } catch (error) {
+    console.error(error);
+    showNotice(container, "Could not export that book.", "error");
+  }
+}
+
+async function handleExportAll(container) {
+  const books = await getAllBooks();
+  if (!books.length) return;
+
+  try {
+    const data = await exportCollection(books);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const result = await saveExport(data, `book-flow-library-${stamp}.bookflow.json`);
+    if (result !== "cancelled") {
+      showNotice(container, `Exported ${books.length} book${books.length === 1 ? "" : "s"}.`, "success");
+    }
+  } catch (error) {
+    console.error(error);
+    showNotice(container, "Could not export your library.", "error");
+  }
+}
+
+async function handleImport(event, container) {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+
+  clearNotice(container);
+
+  let entries;
+  try {
+    entries = parseImportFile(await file.text());
+  } catch (error) {
+    if (error instanceof ImportError) {
+      showNotice(container, `${error.message} Nothing was imported.`, "error");
+      return;
+    }
+    console.error(error);
+    showNotice(container, "Could not read that file. Nothing was imported.", "error");
+    return;
+  }
+
+  await runImport(entries, container);
+}
+
+// Entries are written one at a time so a conflict on the third book of a
+// collection can be answered without holding up the two before it.
+async function runImport(entries, container) {
+  let imported = 0;
+  let skipped = 0;
+  let sessions = 0;
+
+  for (const entry of entries) {
+    const localBooks = await getAllBooks();
+    const existing = findConflict(entry, localBooks);
+    let mode = "create";
+
+    if (existing) {
+      mode = await askConflict(container, entry, existing);
+      if (mode === "cancel") {
+        skipped += 1;
+        continue;
+      }
+    }
+
+    try {
+      const result = await importEntry(entry, { mode, existing, localBooks });
+      imported += 1;
+      sessions += result.sessionsAdded;
+    } catch (error) {
+      console.error(error);
+      skipped += 1;
+    }
+  }
+
+  await renderLibrary(container);
+
+  if (!imported) {
+    showNotice(container, "Nothing was imported.", "info");
+    return;
+  }
+
+  const parts = [`Imported ${imported} book${imported === 1 ? "" : "s"}`];
+  if (sessions) parts.push(`${sessions} new session${sessions === 1 ? "" : "s"}`);
+  if (skipped) parts.push(`${skipped} skipped`);
+  showNotice(container, `${parts.join(", ")}.`, "success");
+}
+
+// Resolves to "overwrite", "keep-both" or "cancel". Rendered inline in the
+// page rather than as a dialog, so the rest of the library stays visible.
+function askConflict(container, entry, existing) {
+  const panel = container.querySelector("#import-conflict");
+
+  panel.innerHTML = `
+    <p class="import-conflict-title">“${escapeHtml(entry.title)}” is already in your library.</p>
+    <p class="import-conflict-detail">
+      Import: word ${entry.readingPosition} / Local: word ${existing.progress || 0}
+    </p>
+    <div class="import-conflict-actions">
+      <button type="button" data-choice="overwrite">Overwrite</button>
+      <button type="button" data-choice="keep-both">Keep both</button>
+      <button type="button" data-choice="cancel">Cancel</button>
+    </div>
+  `;
+  panel.classList.remove("hidden");
+
+  // A collection can raise several conflicts in a row, so the listener is torn
+  // down with the panel instead of stacking up across questions.
+  const controller = new AbortController();
+
+  return new Promise((resolve) => {
+    panel.addEventListener(
+      "click",
+      (event) => {
+        const button = event.target.closest("button[data-choice]");
+        if (!button) return;
+        controller.abort();
+        panel.classList.add("hidden");
+        panel.innerHTML = "";
+        resolve(button.dataset.choice);
+      },
+      { signal: controller.signal }
+    );
+  });
 }
 
 function languageCheckboxes() {
@@ -154,6 +335,7 @@ function bookItem(book) {
         <span class="book-title">${escapeHtml(book.title)}</span>
         <span class="book-progress">${percent}% read</span>
       </div>
+      <button class="export-button" data-id="${book.id}" aria-label="Export book">↑</button>
       <button class="delete-button" data-id="${book.id}" aria-label="Delete book">×</button>
     </li>
   `;
@@ -401,6 +583,13 @@ async function saveBook(title, text) {
 }
 
 function handleListClick(event, container) {
+  const exportButton = event.target.closest(".export-button");
+  if (exportButton) {
+    event.stopPropagation();
+    handleExportBook(exportButton.dataset.id, container);
+    return;
+  }
+
   const deleteButton = event.target.closest(".delete-button");
   if (deleteButton) {
     event.stopPropagation();
