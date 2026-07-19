@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { detectPageColumns } from "../src/scanner/pageDetection.js";
+import { detectPageColumns, spreadCut } from "../src/scanner/pageDetection.js";
 import { extractText } from "../src/scanner/extract.js";
 
 const WIDTH = 1000;
@@ -111,4 +111,31 @@ test("extraction without a column is unchanged", () => {
   const blocks = pageOf([word("alles", 60, 200), word("zusammen", 620, 760)]);
 
   assert.equal(extractText(blocks), "alles zusammen");
+});
+
+test("the cut lands between the two pages, scaled to the full image", () => {
+  // Columns come from a reduced probe, so the cut has to be scaled up.
+  const columns = [
+    { x0: 46, x1: 293 },
+    { x0: 326, x1: 600 },
+  ];
+
+  assert.equal(spreadCut(columns, 600, 600), 310);
+  assert.equal(spreadCut(columns, 3400, 600), 1754);
+});
+
+test("a single page is not cut", () => {
+  assert.equal(spreadCut([{ x0: 100, x1: 500 }], 1000, 1000), null);
+  assert.equal(spreadCut([], 1000, 1000), null);
+  assert.equal(spreadCut(undefined, 1000, 1000), null);
+});
+
+test("a cut falling outside the image leaves the page whole", () => {
+  const flush = [
+    { x0: 0, x1: 0 },
+    { x0: 0, x1: 400 },
+  ];
+
+  assert.equal(spreadCut(flush, 1000, 1000), null);
+  assert.equal(spreadCut(flush, 1000, 0), null);
 });

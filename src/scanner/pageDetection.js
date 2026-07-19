@@ -251,6 +251,22 @@ export function detectPageColumns(blocks, width) {
   return [extentOf(main)];
 }
 
+/**
+ * Where to cut a spread into two pages, in the coordinates of `imageWidth`.
+ *
+ * The columns are measured on a reduced probe, so they have to be scaled back
+ * up. Returns `null` when there is nothing to split or the cut would fall
+ * outside the image, which the caller treats as "leave the page whole".
+ */
+export function spreadCut(columns, imageWidth, probeWidth) {
+  if (!columns || columns.length < 2 || !probeWidth) return null;
+
+  // Midway between the two text blocks, so the cut lands in the gutter rather
+  // than against the last line of either page.
+  const cut = Math.round(((columns[0].x1 + columns[1].x0) / 2) * (imageWidth / probeWidth));
+  return cut > 0 && cut < imageWidth ? cut : null;
+}
+
 function quadArea(quad) {
   let total = 0;
   for (let i = 0; i < 4; i += 1) {

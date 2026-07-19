@@ -312,9 +312,16 @@ async function scanPdfFiles(files, container) {
     const texts = [];
     for (const file of files) {
       texts.push(
-        await scanPageStream(readPdfPages(file), (number, total) => {
-          setScanStatus(container, `Scanning page ${number} of ${total}…`);
-        })
+        await scanPageStream(
+          readPdfPages(file),
+          (number, total) => {
+            setScanStatus(container, `Scanning page ${number} of ${total}…`);
+          },
+          // Nothing has straightened these yet: a document scanner saves a
+          // sideways-held book exactly as it was held, and an open book as one
+          // sheet with both pages on it.
+          { preparePages: true }
+        )
       );
     }
 

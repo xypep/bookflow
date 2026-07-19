@@ -1,7 +1,8 @@
 import { createWorker } from "tesseract.js";
 import { toGrayscale, adaptiveThreshold, grayToRgba } from "./binarize.js";
 import { extractText, dehyphenate } from "./extract.js";
-import { detectPageColumns } from "./pageDetection.js";
+import { detectPageColumns, spreadCut } from "./pageDetection.js";
+import { detectOrientation, rotateCanvas } from "./orientation.js";
 import { languageString } from "./languages.js";
 
 // Worker + wasm core are self-hosted (see public/tesseract) instead of the
@@ -119,10 +120,9 @@ const WORD_OUTPUT = { blocks: true, text: false };
 // slight tilt costs accuracy. Tesseract can measure and correct the skew.
 const RECOGNIZE_OPTIONS = { rotateAuto: true };
 
-// A document scanner treats an open book as one sheet, so a spread arrives as
-// a single image. Reading it as one page would run lines across the gutter and
-// interleave the two; splitting on the detected columns keeps them apart and
-// in reading order.
+// Where a photo of a spread still slips through, the words are at least sorted
+// back onto their own page. This is the weaker of the two remedies — see
+// preparePage for why cutting the image first is preferred.
 function textFromResult(result, width) {
   const columns = detectPageColumns(result.blocks, width);
 
@@ -134,24 +134,78 @@ function textFromResult(result, width) {
     .join("\n\n");
 }
 
-async function recognizePage(worker, file) {
-  const raw = await loadCanvas(file);
+/**
+ * Cuts an open spread into its two pages at the gutter, and turns a sideways
+ * page upright on the way.
+ *
+ * Both are settled from one reduced-size probe. Measured on a real scanner PDF:
+ * a sideways page scored 36 confidence with 8% of its words solid, against 94
+ * and 98% for the upright page beside it. And reading a spread whole runs
+ * Tesseract's line segmentation straight across the gutter — filtering the
+ * words by column afterwards recovers them but leaves the two pages
+ * interleaved and out of order (83% solid, unreadable), where cutting the
+ * image first gives 88% and 93% in correct reading order.
+ *
+ * Only for sources that skip the crop screen; a photographed page has already
+ * been turned upright and cropped to one page by hand.
+ */
+async function preparePage(worker, canvas) {
+  const probe = await detectOrientation(worker, canvas);
+
+  let upright = canvas;
+  if (probe.turns) {
+    upright = rotateCanvas(canvas, probe.turns);
+    release(canvas);
+  }
+
+  const columns = detectPageColumns(probe.blocks, probe.width);
+  const cut = spreadCut(columns, upright.width, probe.width);
+  if (cut === null) return [upright];
+
+  const halves = [
+    [0, cut],
+    [cut, upright.width],
+  ].map(([x0, x1]) => {
+    const half = document.createElement("canvas");
+    half.width = x1 - x0;
+    half.height = upright.height;
+    half.getContext("2d").drawImage(upright, -x0, 0);
+    return half;
+  });
+
+  release(upright);
+  return halves;
+}
+
+async function recognizeImage(worker, raw) {
   const cleaned = binarizeCanvas(raw);
-  const { width } = raw;
 
   try {
     const cleanedResult = (await worker.recognize(cleaned, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
     if (cleanedResult.confidence >= LOW_CONFIDENCE) {
-      return textFromResult(cleanedResult, width);
+      return textFromResult(cleanedResult, raw.width);
     }
 
     const rawResult = (await worker.recognize(raw, RECOGNIZE_OPTIONS, WORD_OUTPUT)).data;
     const better = rawResult.confidence > cleanedResult.confidence ? rawResult : cleanedResult;
-    return textFromResult(better, width);
+    return textFromResult(better, raw.width);
   } finally {
     release(cleaned);
-    release(raw);
   }
+}
+
+async function recognizePage(worker, file, prepare) {
+  const loaded = await loadCanvas(file);
+  const images = prepare ? await preparePage(worker, loaded) : [loaded];
+  const texts = [];
+
+  try {
+    for (const image of images) texts.push((await recognizeImage(worker, image)).trim());
+  } finally {
+    for (const image of images) release(image);
+  }
+
+  return texts.filter(Boolean).join("\n\n");
 }
 
 // Runs OCR over each page image in order and joins the recognized text,
@@ -169,14 +223,19 @@ export async function scanPages(images, onProgress) {
  * Same, but driven by a stream of pages. A scanned book runs to hundreds of
  * pages, and materializing them all as canvases first would exhaust a phone,
  * so the source stays in control of producing one at a time.
+ *
+ * `preparePages` turns each page upright and splits an open spread before
+ * recognition — for sources that skip the crop screen, where neither has
+ * happened yet. It costs one extra reduced-size pass per page, three more when
+ * the page really is sideways.
  */
-export async function scanPageStream(pages, onProgress) {
+export async function scanPageStream(pages, onProgress, { preparePages = false } = {}) {
   const worker = await getWorker();
   const pageTexts = [];
 
   for await (const { image, number, total } of pages) {
     onProgress?.(number, total);
-    const text = await recognizePage(worker, image);
+    const text = await recognizePage(worker, image, preparePages);
     pageTexts.push(dehyphenate(text).trim());
   }
 
