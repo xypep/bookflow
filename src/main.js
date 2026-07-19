@@ -2,10 +2,14 @@ import "./style.css";
 import { renderLibrary } from "./library/library.js";
 import { renderReader, stopReader } from "./reader/reader.js";
 import { initTheme } from "./themes/themes.js";
+import { initSessionTracker } from "./sessions/sessionTracker.js";
 
 const app = document.querySelector("#app");
 
 initTheme();
+// Finalizes any session left half-written by an app the OS killed, before the
+// reader can open a new one.
+initSessionTracker();
 
 function router() {
   stopReader();

@@ -1,17 +1,16 @@
+import { generateId } from "../utils.js";
+
 const DB_NAME = "book-flow";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = "books";
 // Reading position lives in its own store: it changes several times per
 // second, and IndexedDB can only replace whole records. Keeping it on the
 // book record meant rewriting the entire book text on every word.
 const PROGRESS_STORE = "progress";
-
-// crypto.randomUUID() only works in secure contexts (https or localhost), but
-// the app is also used over plain http on the local network (phone testing),
-// so we need an id generator that works everywhere.
-function generateId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
+// Raw reading sessions. Stats are derived from these on demand rather than
+// aggregated here, so later views (per-day totals, streaks, WPM trend) can be
+// added without another migration.
+const SESSION_STORE = "sessions";
 
 // The library is ordered by creation time, and books added in the same
 // millisecond would otherwise have no defined order between them. Forcing the
@@ -37,6 +36,12 @@ function getDatabase() {
         }
         if (!db.objectStoreNames.contains(PROGRESS_STORE)) {
           db.createObjectStore(PROGRESS_STORE, { keyPath: "id" });
+        }
+        // Each store is created only when missing, so a library arriving from
+        // any earlier version keeps the books and positions it already has.
+        if (!db.objectStoreNames.contains(SESSION_STORE)) {
+          const sessions = db.createObjectStore(SESSION_STORE, { keyPath: "id" });
+          sessions.createIndex("bookId", "bookId");
         }
       };
 
@@ -104,9 +109,37 @@ export async function updateProgress(id, progress) {
 
 export async function deleteBook(id) {
   const db = await getDatabase();
-  const transaction = db.transaction([STORE_NAME, PROGRESS_STORE], "readwrite");
+  const transaction = db.transaction([STORE_NAME, PROGRESS_STORE, SESSION_STORE], "readwrite");
+  const sessions = transaction.objectStore(SESSION_STORE).index("bookId");
+  const sessionIds = await promisifyRequest(sessions.getAllKeys(id));
+
   await Promise.all([
     promisifyRequest(transaction.objectStore(STORE_NAME).delete(id)),
     promisifyRequest(transaction.objectStore(PROGRESS_STORE).delete(id)),
+    // Orphaned sessions would otherwise be inherited by a book that reuses
+    // the id, and would keep skewing any later stats.
+    ...sessionIds.map((key) => promisifyRequest(transaction.objectStore(SESSION_STORE).delete(key))),
   ]);
+}
+
+export async function putSession(session) {
+  const db = await getDatabase();
+  await promisifyRequest(openStore(db, SESSION_STORE, "readwrite").put(session));
+  return session;
+}
+
+export async function deleteSession(id) {
+  const db = await getDatabase();
+  await promisifyRequest(openStore(db, SESSION_STORE, "readwrite").delete(id));
+}
+
+export async function getAllSessions() {
+  const db = await getDatabase();
+  return promisifyRequest(openStore(db, SESSION_STORE, "readonly").getAll());
+}
+
+export async function getSessionsForBook(bookId) {
+  const db = await getDatabase();
+  const index = openStore(db, SESSION_STORE, "readonly").index("bookId");
+  return promisifyRequest(index.getAll(bookId));
 }

@@ -2,6 +2,7 @@ import { getBook, updateProgress } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
 import { getOrpIndex } from "./rsvp.js";
 import { findChapters, chapterAt } from "./chapters.js";
+import { startSession, pauseSession, countWord, endSession } from "../sessions/sessionTracker.js";
 
 const WPM_STORAGE_KEY = "book-flow-wpm";
 const MODE_STORAGE_KEY = "book-flow-mode";
@@ -179,6 +180,7 @@ function tick() {
     return;
   }
   state.index += 1;
+  countWord();
   renderWord();
   updateProgressBar();
   saveProgress();
@@ -191,12 +193,14 @@ function play() {
     state.index = 0;
   }
   state.playing = true;
+  startSession(state.book.id);
   scheduleNext();
 }
 
 function pause() {
   state.playing = false;
   clearTimeout(state.timerId);
+  pauseSession();
   saveProgress();
   flushProgress();
 }
@@ -290,4 +294,7 @@ export function stopReader() {
     pause();
   }
   flushProgress();
+  // Leaving the reader closes the session even if the pause timeout hasn't
+  // run out — the next book (or the next visit) starts a fresh one.
+  endSession();
 }
