@@ -1,12 +1,13 @@
 import { getBook, updateProgress } from "../db/database.js";
 import { tokenize, escapeHtml } from "../utils.js";
-import { getOrpIndex } from "./rsvp.js";
+import { getOrpIndex, getBionicLength } from "./rsvp.js";
 import { findChapters, chapterAt } from "./chapters.js";
 import { startSession, pauseSession, countWord, endSession } from "../sessions/sessionTracker.js";
 import { setLastOpenedBookId } from "./recent.js";
 
 const WPM_STORAGE_KEY = "book-flow-wpm";
 const MODE_STORAGE_KEY = "book-flow-mode";
+const BIONIC_STORAGE_KEY = "book-flow-bionic";
 const MIN_WPM = 100;
 const MAX_WPM = 900;
 const WPM_STEP = 25;
@@ -28,6 +29,7 @@ export async function renderReader(container, bookId) {
   const chapters = findChapters(book.text);
   const wpm = clampWpm(Number(localStorage.getItem(WPM_STORAGE_KEY)) || 300);
   const mode = localStorage.getItem(MODE_STORAGE_KEY) === "manual" ? "manual" : "auto";
+  const bionic = localStorage.getItem(BIONIC_STORAGE_KEY) === "on";
 
   state = {
     book,
@@ -35,6 +37,7 @@ export async function renderReader(container, bookId) {
     index: Math.min(book.progress || 0, Math.max(words.length - 1, 0)),
     wpm,
     mode,
+    bionic,
     chapters,
     playing: false,
     timerId: null,
@@ -51,6 +54,7 @@ export async function renderReader(container, bookId) {
         </div>
         <button id="mode-toggle" class="icon-button" aria-label="Switch tap mode">${modeLabel(mode)}</button>
         ${chapters.length ? `<button id="chapter-button" class="icon-button" aria-label="Jump to chapter">☰</button>` : ""}
+        <button id="reader-settings-button" class="icon-button" aria-label="Reading settings">⚙</button>
       </header>
 
       <div class="reader-tap-zones">
@@ -66,6 +70,7 @@ export async function renderReader(container, bookId) {
       </div>
 
       ${chapters.length ? chapterModal(chapters) : ""}
+      ${settingsSheet(bionic)}
     </div>
   `;
 
@@ -79,11 +84,57 @@ export async function renderReader(container, bookId) {
   container.querySelector("#tap-right").addEventListener("click", handleTapRight);
   container.querySelector("#mode-toggle").addEventListener("click", toggleMode);
 
+  container.querySelector("#reader-settings-button").addEventListener("click", () => {
+    toggleSettings(true);
+  });
+  container.querySelector("#reader-settings").addEventListener("click", handleSettingsClick);
+
   if (chapters.length) {
     container.querySelector("#chapter-button").addEventListener("click", () => toggleChapters(true));
     container.querySelector("#chapter-close").addEventListener("click", () => toggleChapters(false));
     container.querySelector("#chapter-list").addEventListener("click", handleChapterPick);
   }
+}
+
+function settingsSheet(bionic) {
+  return `
+    <div id="reader-settings" class="add-sheet hidden">
+      <div class="add-sheet-backdrop" data-close="1"></div>
+      <div class="add-sheet-options">
+        <p class="add-sheet-title">Reading</p>
+        <button type="button" class="setting-row" data-setting="bionic" aria-pressed="${bionic}">
+          <span class="setting-text">
+            <span class="setting-name">Bold first letters</span>
+            <span class="setting-note">Emboldens the start of each word so the eye can complete it.</span>
+          </span>
+          <span class="setting-switch" aria-hidden="true"></span>
+        </button>
+        <button type="button" data-close="1">Done</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleSettings(show) {
+  // The word would advance behind the sheet, and the setting is about how the
+  // word looks — so playback stops while it's open.
+  if (show && state.playing) pause();
+  document.getElementById("reader-settings")?.classList.toggle("hidden", !show);
+}
+
+function handleSettingsClick(event) {
+  const setting = event.target.closest("[data-setting]");
+  if (setting?.dataset.setting === "bionic") {
+    state.bionic = !state.bionic;
+    localStorage.setItem(BIONIC_STORAGE_KEY, state.bionic ? "on" : "off");
+    setting.setAttribute("aria-pressed", String(state.bionic));
+    // Shows the change on the word already on screen, rather than at the next
+    // tick — which in manual mode might never come.
+    renderWord();
+    return;
+  }
+
+  if (event.target.closest("[data-close]")) toggleSettings(false);
 }
 
 function chapterModal(chapters) {
@@ -153,18 +204,29 @@ function wordScale(word) {
   return Math.max(MIN_WORD_SCALE, COMFORTABLE_WORD_LENGTH / word.length);
 }
 
+// The emboldened opening and the fixation letter overlap, so each of the three
+// display segments is split again at whatever part of it falls inside the
+// bold prefix. `from` is the segment's offset within the whole word.
+function segment(text, from, boldUntil) {
+  const bold = Math.min(Math.max(boldUntil - from, 0), text.length);
+  if (!bold) return escapeHtml(text);
+  return `<b>${escapeHtml(text.slice(0, bold))}</b>${escapeHtml(text.slice(bold))}`;
+}
+
 function renderWord() {
   const wordEl = document.getElementById("word");
   if (!wordEl) return;
 
   const word = state.words[state.index] ?? "";
   const orpIndex = Math.min(getOrpIndex(word), Math.max(word.length - 1, 0));
+  const boldUntil = state.bionic ? getBionicLength(word) : 0;
 
   wordEl.style.setProperty("--word-scale", wordScale(word));
+  wordEl.classList.toggle("bionic", state.bionic);
   wordEl.innerHTML =
-    `<span class="word-before">${escapeHtml(word.slice(0, orpIndex))}</span>` +
-    `<span class="word-orp">${escapeHtml(word[orpIndex] ?? "")}</span>` +
-    `<span class="word-after">${escapeHtml(word.slice(orpIndex + 1))}</span>`;
+    `<span class="word-before">${segment(word.slice(0, orpIndex), 0, boldUntil)}</span>` +
+    `<span class="word-orp">${segment(word[orpIndex] ?? "", orpIndex, boldUntil)}</span>` +
+    `<span class="word-after">${segment(word.slice(orpIndex + 1), orpIndex + 1, boldUntil)}</span>`;
 }
 
 function updateProgressBar() {

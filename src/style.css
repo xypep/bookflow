@@ -492,6 +492,12 @@ textarea {
   color: var(--color-danger);
 }
 
+/* The reader has no nav bar, so the sheet there sits on the bottom edge
+   instead of clearing one that isn't present. */
+#reader-settings .add-sheet-options {
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+
 /* Home screen */
 
 .home-screen {
@@ -1207,6 +1213,82 @@ textarea {
 
 .word-orp {
   color: var(--color-accent);
+}
+
+/* The word normally sits at 600, which leaves no room above it for an opening
+   that reads as heavier. So the whole word drops to regular while the setting
+   is on, and the opening takes the weight the word used to have plus some. */
+.rsvp-word.bionic {
+  font-weight: 400;
+}
+
+.rsvp-word.bionic b {
+  font-weight: 800;
+}
+
+/* Reader settings */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+}
+
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-name {
+  font-weight: 500;
+}
+
+.setting-note {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-muted);
+  line-height: 1.35;
+}
+
+.setting-switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background 0.15s ease;
+}
+
+.setting-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  transition: transform 0.15s ease;
+}
+
+.setting-row[aria-pressed="true"] .setting-switch {
+  background: var(--color-accent);
+}
+
+.setting-row[aria-pressed="true"] .setting-switch::after {
+  transform: translateX(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setting-switch,
+  .setting-switch::after {
+    transition: none;
+  }
 }
 
 .word-after {
