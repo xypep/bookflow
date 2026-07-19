@@ -28,3 +28,6 @@ dist-ssr
 
 # Sample scans for local measurement, not source
 samples/*.pdf
+
+# Design exports dropped in for reference, not source
+samples/*.zip

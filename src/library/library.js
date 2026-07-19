@@ -18,45 +18,41 @@ import { detectPageCorners } from "../scanner/pageDetection.js";
 import { isCameraAvailable, captureFromCamera } from "../scanner/camera.js";
 import { AVAILABLE_LANGUAGES, getLanguages, setLanguages } from "../scanner/languages.js";
 import { cropAndStraighten } from "../scanner/cropper.js";
+import { navBar, addSheet, bindAddSheet } from "../shell/nav.js";
+import { coverStyle, coverInitials } from "./covers.js";
+
+let libraryBooks = [];
+let searchTerm = "";
 
 export async function renderLibrary(container) {
   const books = await getAllBooks();
+  libraryBooks = books;
 
   container.innerHTML = `
     <div class="screen library-screen">
       <header class="library-header">
-        <h1>Book Flow</h1>
+        <h1>Library</h1>
         <button id="theme-toggle" class="icon-button" aria-label="Switch theme">${getThemeIcon(getTheme())}</button>
       </header>
 
-      <div class="add-book">
-        <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
-        <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden />
-        <input type="file" id="scan-input" accept="image/*,application/pdf,.pdf" multiple hidden />
-        <button id="upload-button">Upload .txt / .md</button>
-        <button id="scan-button">Scan document</button>
-        <button id="pdf-button">Import PDF</button>
-        <button id="paste-button">Paste text</button>
-      </div>
+      <input type="search" id="book-search" class="book-search" placeholder="Search books"
+        autocomplete="off" autocorrect="off" spellcheck="false" value="${escapeHtml(searchTerm)}" />
 
-      <div class="library-transfer">
-        <input type="file" id="import-input" accept=".json,application/json" hidden />
-        <button id="import-button">Import book file</button>
-        <button id="export-all-button" ${books.length ? "" : "disabled"}>Export all books</button>
-      </div>
+      <input type="file" id="file-input" accept=".txt,.md,text/plain,text/markdown" hidden />
+      <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden />
+      <input type="file" id="scan-input" accept="image/*,application/pdf,.pdf" multiple hidden />
+      <input type="file" id="import-input" accept=".json,application/json" hidden />
 
       <div id="library-notice" class="library-notice hidden" role="status"></div>
       <div id="import-conflict" class="import-conflict hidden"></div>
+
+      <ul id="book-grid" class="book-grid">${bookGrid(books, searchTerm)}</ul>
 
       <details class="scan-languages">
         <summary>Scan languages</summary>
         <p class="scan-languages-note">All on by default. Turning some off makes scanning faster.</p>
         <div class="scan-languages-options">${languageCheckboxes()}</div>
       </details>
-
-      <ul class="book-list">
-        ${books.length ? books.map(bookItem).join("") : emptyState()}
-      </ul>
 
       <div id="paste-modal" class="modal hidden">
         <div class="modal-content">
@@ -82,40 +78,36 @@ export async function renderLibrary(container) {
         <span class="scan-toast-spinner"></span>
         <span id="scan-toast-text"></span>
       </div>
+
+      <div id="book-sheet" class="add-sheet hidden">
+        <div class="add-sheet-backdrop" data-close="1"></div>
+        <div id="book-sheet-options" class="add-sheet-options" role="menu"></div>
+      </div>
+
+      ${addSheet()}
+      ${navBar("#/library")}
     </div>
   `;
 
   container.querySelector("#theme-toggle").addEventListener("click", (event) => {
     const theme = cycleTheme();
-    event.target.textContent = getThemeIcon(theme);
-  });
-
-  container.querySelector("#upload-button").addEventListener("click", () => {
-    container.querySelector("#file-input").click();
+    event.currentTarget.textContent = getThemeIcon(theme);
   });
 
   container.querySelector("#file-input").addEventListener("change", (event) => {
     handleFileUpload(event, container);
   });
 
-  container.querySelector("#scan-button").addEventListener("click", () => {
-    startScan(container);
-  });
-
   container.querySelector("#scan-input").addEventListener("change", (event) => {
     handleScan(event, container);
-  });
-
-  container.querySelector("#pdf-button").addEventListener("click", () => {
-    container.querySelector("#pdf-input").click();
   });
 
   container.querySelector("#pdf-input").addEventListener("change", (event) => {
     handlePdf(event, container);
   });
 
-  container.querySelector("#paste-button").addEventListener("click", () => {
-    togglePasteModal(container, true);
+  container.querySelector("#import-input").addEventListener("change", (event) => {
+    handleImport(event, container);
   });
 
   container.querySelector("#paste-cancel").addEventListener("click", () => {
@@ -134,21 +126,28 @@ export async function renderLibrary(container) {
     handleLanguageChange(container);
   });
 
-  container.querySelector(".book-list").addEventListener("click", (event) => {
+  container.querySelector("#book-grid").addEventListener("click", (event) => {
     handleListClick(event, container);
   });
 
-  container.querySelector("#import-button").addEventListener("click", () => {
-    container.querySelector("#import-input").click();
+  container.querySelector("#book-search").addEventListener("input", (event) => {
+    searchTerm = event.target.value;
+    container.querySelector("#book-grid").innerHTML = bookGrid(libraryBooks, searchTerm);
   });
 
-  container.querySelector("#import-input").addEventListener("change", (event) => {
-    handleImport(event, container);
-  });
+  bindAddSheet(container, (action) => handleAddAction(action, container));
 
-  container.querySelector("#export-all-button").addEventListener("click", () => {
-    handleExportAll(container);
+  container.querySelector("#book-sheet").addEventListener("click", (event) => {
+    handleBookSheetClick(event, container);
   });
+}
+
+function handleAddAction(action, container) {
+  if (action === "scan") startScan(container);
+  else if (action === "upload") container.querySelector("#file-input").click();
+  else if (action === "pdf") container.querySelector("#pdf-input").click();
+  else if (action === "import") container.querySelector("#import-input").click();
+  else if (action === "paste") togglePasteModal(container, true);
 }
 
 /* Inline status line — never blocks, and replaces itself on the next message. */
@@ -326,23 +325,87 @@ function handleLanguageChange(container) {
   });
 }
 
-function bookItem(book) {
+function readPercent(book) {
   const total = book.wordCount || 0;
-  const percent = total > 1 ? Math.round((book.progress / (total - 1)) * 100) : 0;
+  return total > 1 ? Math.round((book.progress / (total - 1)) * 100) : 0;
+}
+
+function bookGrid(books, term) {
+  if (!books.length) {
+    return `<li class="empty-state">No books yet — tap + to scan a page, upload a file or paste some text.</li>`;
+  }
+
+  const needle = term.trim().toLowerCase();
+  const matching = needle
+    ? books.filter((book) => book.title.toLowerCase().includes(needle))
+    : books;
+
+  if (!matching.length) {
+    return `<li class="empty-state">No book matches “${escapeHtml(term.trim())}”.</li>`;
+  }
+
+  return matching.map(bookCard).join("");
+}
+
+function bookCard(book) {
+  const percent = readPercent(book);
   return `
-    <li class="book-item" data-id="${book.id}">
-      <div class="book-info">
+    <li class="book-card">
+      <button class="book-open" data-id="${book.id}">
+        <span class="book-cover" style="${coverStyle(book.title)}">
+          <span class="book-cover-spine"></span>
+          <span class="book-cover-initials">${escapeHtml(coverInitials(book.title))}</span>
+        </span>
         <span class="book-title">${escapeHtml(book.title)}</span>
-        <span class="book-progress">${percent}% read</span>
-      </div>
-      <button class="export-button" data-id="${book.id}" aria-label="Export book">↑</button>
-      <button class="delete-button" data-id="${book.id}" aria-label="Delete book">×</button>
+        <span class="book-meter"><span class="book-meter-fill" style="width:${percent}%"></span></span>
+        <span class="book-percent">${percent}%</span>
+      </button>
+      <button class="book-menu" data-menu="${book.id}" aria-label="Actions for ${escapeHtml(book.title)}">⋯</button>
     </li>
   `;
 }
 
-function emptyState() {
-  return `<li class="empty-state">No books yet — upload a .txt or .md file or paste some text to get started.</li>`;
+// One sheet reused for every book, so the grid stays free of hidden menus.
+function openBookSheet(container, book) {
+  const options = container.querySelector("#book-sheet-options");
+  options.dataset.id = book.id;
+  options.innerHTML = `
+    <p class="add-sheet-title">${escapeHtml(book.title)}</p>
+    <button type="button" data-book-action="read">Continue reading</button>
+    <button type="button" data-book-action="export">Export as file</button>
+    <button type="button" data-book-action="export-all">Export whole library</button>
+    <button type="button" class="destructive" data-book-action="delete">Delete</button>
+  `;
+  container.querySelector("#book-sheet").classList.remove("hidden");
+}
+
+function handleBookSheetClick(event, container) {
+  const sheet = container.querySelector("#book-sheet");
+  if (event.target.closest("[data-close]")) {
+    sheet.classList.add("hidden");
+    return;
+  }
+
+  const button = event.target.closest("[data-book-action]");
+  if (!button) return;
+
+  const id = container.querySelector("#book-sheet-options").dataset.id;
+  const action = button.dataset.bookAction;
+
+  if (action === "delete") {
+    // Deleting is the one irreversible action here, so it asks a second time
+    // in place rather than through a confirm() the page has to wait on.
+    button.dataset.bookAction = "delete-confirm";
+    button.textContent = "Really delete — tap again";
+    return;
+  }
+
+  sheet.classList.add("hidden");
+
+  if (action === "read") window.location.hash = `#/reader/${id}`;
+  else if (action === "export") handleExportBook(id, container);
+  else if (action === "export-all") handleExportAll(container);
+  else if (action === "delete-confirm") handleDelete(id, container);
 }
 
 async function handleFileUpload(event, container) {
@@ -583,28 +646,22 @@ async function saveBook(title, text) {
 }
 
 function handleListClick(event, container) {
-  const exportButton = event.target.closest(".export-button");
-  if (exportButton) {
-    event.stopPropagation();
-    handleExportBook(exportButton.dataset.id, container);
+  const menuButton = event.target.closest("[data-menu]");
+  if (menuButton) {
+    const book = libraryBooks.find((entry) => entry.id === menuButton.dataset.menu);
+    if (book) openBookSheet(container, book);
     return;
   }
 
-  const deleteButton = event.target.closest(".delete-button");
-  if (deleteButton) {
-    event.stopPropagation();
-    handleDelete(deleteButton.dataset.id, container);
-    return;
-  }
-
-  const item = event.target.closest(".book-item");
-  if (item) {
-    window.location.hash = `#/reader/${item.dataset.id}`;
+  const open = event.target.closest(".book-open");
+  if (open) {
+    window.location.hash = `#/reader/${open.dataset.id}`;
   }
 }
 
 async function handleDelete(id, container) {
-  if (!window.confirm("Delete this book?")) return;
+  const book = libraryBooks.find((entry) => entry.id === id);
   await deleteBook(id);
-  renderLibrary(container);
+  await renderLibrary(container);
+  showNotice(container, `Deleted “${book?.title ?? "book"}”.`, "info");
 }
