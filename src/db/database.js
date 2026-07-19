@@ -1,4 +1,4 @@
-import { generateId } from "../utils.js";
+import { generateId, tokenize } from "../utils.js";
 
 const DB_NAME = "book-flow";
 const DB_VERSION = 3;
@@ -116,6 +116,22 @@ export async function replaceBookContent(id, { title, text, wordCount }) {
   if (!existing) return null;
 
   const book = { ...existing, title, text, wordCount };
+  await promisifyRequest(openStore(db, STORE_NAME, "readwrite").put(book));
+  return book;
+}
+
+/**
+ * Adds recognized pages to the end of a book. Scanning a whole book happens a
+ * chunk at a time across several sittings, so text has to accumulate rather
+ * than replace.
+ */
+export async function appendToBook(id, text) {
+  const db = await getDatabase();
+  const existing = await promisifyRequest(openStore(db, STORE_NAME, "readonly").get(id));
+  if (!existing) return null;
+
+  const combined = existing.text ? `${existing.text}\n\n${text}` : text;
+  const book = { ...existing, text: combined, wordCount: tokenize(combined).length };
   await promisifyRequest(openStore(db, STORE_NAME, "readwrite").put(book));
   return book;
 }

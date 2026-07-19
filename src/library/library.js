@@ -1,4 +1,4 @@
-import { addBook, getAllBooks, deleteBook } from "../db/database.js";
+import { addBook, getAllBooks, deleteBook, appendToBook } from "../db/database.js";
 import {
   exportBook,
   exportCollection,
@@ -143,6 +143,7 @@ export async function renderLibrary(container) {
 }
 
 function handleAddAction(action, container) {
+  scanTarget = null;
   if (action === "scan") startScan(container);
   else if (action === "upload") container.querySelector("#file-input").click();
   else if (action === "pdf") container.querySelector("#pdf-input").click();
@@ -372,6 +373,7 @@ function openBookSheet(container, book) {
   options.innerHTML = `
     <p class="add-sheet-title">${escapeHtml(book.title)}</p>
     <button type="button" data-book-action="read">Continue reading</button>
+    <button type="button" data-book-action="add-scan">Add pages (scan or PDF)</button>
     <button type="button" data-book-action="export">Export as file</button>
     <button type="button" data-book-action="export-all">Export whole library</button>
     <button type="button" class="destructive" data-book-action="delete">Delete</button>
@@ -403,6 +405,7 @@ function handleBookSheetClick(event, container) {
   sheet.classList.add("hidden");
 
   if (action === "read") window.location.hash = `#/reader/${id}`;
+  else if (action === "add-scan") startAppendScan(id, container);
   else if (action === "export") handleExportBook(id, container);
   else if (action === "export-all") handleExportAll(container);
   else if (action === "delete-confirm") handleDelete(id, container);
@@ -475,6 +478,7 @@ async function prepareAndScan(images, container) {
   }
 
   if (pages.length) await runScan(pages, container);
+  else scanTarget = null;
 }
 
 // Safari will not allocate a canvas much beyond 16.7 megapixels, which a photo
@@ -529,7 +533,10 @@ async function handleScan(event, container) {
   const files = Array.from(event.target.files);
   // Cleared up front so picking the same file twice still fires a change.
   event.target.value = "";
-  if (!files.length) return;
+  if (!files.length) {
+    scanTarget = null;
+    return;
+  }
 
   // A PDF picked here is the scanner-app case, not a photo to crop.
   if (files.every(isPdf)) {
@@ -550,37 +557,49 @@ async function handlePdf(event, container) {
 // evened out, so they go straight to recognition — no crop screen, which is
 // the whole point when a chapter arrives as one file.
 async function scanPdfFiles(files, container) {
+  // Nothing has straightened these yet: a document scanner saves a
+  // sideways-held book exactly as it was held, and an open book as one sheet
+  // with both pages on it.
+  const readPdfs = async ({ onProgress, onPage }) => {
+    const texts = [];
+    for (const file of files) {
+      texts.push(await scanPageStream(readPdfPages(file), onProgress, { preparePages: true, onPage }));
+    }
+    return texts.filter(Boolean).join("\n\n");
+  };
+
+  if (scanTarget) {
+    await appendPages(scanTarget, readPdfs, container);
+    return;
+  }
+
   setScanStatus(container, "Reading PDF…");
   toggleScanOverlay(container, true);
 
   try {
-    const texts = [];
-    for (const file of files) {
-      texts.push(
-        await scanPageStream(
-          readPdfPages(file),
-          (number, total) => {
-            setScanStatus(container, `Scanning page ${number} of ${total}…`);
-          },
-          // Nothing has straightened these yet: a document scanner saves a
-          // sideways-held book exactly as it was held, and an open book as one
-          // sheet with both pages on it.
-          { preparePages: true }
-        )
-      );
-    }
-
+    const text = await readPdfs({
+      onProgress: (number, total) => setScanStatus(container, `Scanning page ${number} of ${total}…`),
+    });
     toggleScanOverlay(container, false);
-    showScanResult(container, texts.filter(Boolean).join("\n\n"));
+    showScanResult(container, text);
   } catch (error) {
     toggleScanOverlay(container, false);
-    window.alert("Could not read that PDF. Please try again.");
+    showNotice(container, "Could not read that PDF. Please try again.", "error");
     console.error(error);
   }
 }
 
 
 async function runScan(files, container) {
+  if (scanTarget) {
+    await appendPages(
+      scanTarget,
+      ({ onProgress, onPage }) => scanPages(files, onProgress, { onPage }),
+      container
+    );
+    return;
+  }
+
   toggleScanOverlay(container, true);
 
   try {
@@ -591,7 +610,7 @@ async function runScan(files, container) {
     showScanResult(container, text);
   } catch (error) {
     toggleScanOverlay(container, false);
-    window.alert("Scanning failed. Please try again.");
+    showNotice(container, "Scanning failed. Please try again.", "error");
     console.error(error);
   }
 }
@@ -638,6 +657,97 @@ async function handlePasteSave(container) {
 
   await saveBook(title, text);
   renderLibrary(container);
+}
+
+/* -------------------------------------------------------------------------
+ * Adding pages to a book that already exists
+ *
+ * Recognizing a whole book takes the better part of an hour and will not be
+ * done in one sitting, so pages are banked into the book as they arrive
+ * instead of being held until the end.
+ * ---------------------------------------------------------------------- */
+
+// Which book the running scan appends to, or null to review it in the paste
+// modal and create a new book, which is the original behaviour.
+let scanTarget = null;
+
+// Writing after every page would rewrite the book's whole text hundreds of
+// times; writing only at the end would risk all of it. Ten pages is the
+// compromise: at worst a crash costs the last ten.
+const FLUSH_EVERY_PAGES = 10;
+
+function createAppender(bookId) {
+  let pending = [];
+
+  return {
+    async add(text) {
+      pending.push(text);
+      if (pending.length >= FLUSH_EVERY_PAGES) await this.flush();
+    },
+    async flush() {
+      if (!pending.length) return;
+      const chunk = pending.join("\n\n");
+      pending = [];
+      await appendToBook(bookId, chunk);
+    },
+  };
+}
+
+// A long recognition run dies if the screen locks and Safari suspends the
+// page, so the lock is requested for the duration. It is unavailable over
+// plain http and on older iOS, where the run simply needs the screen kept on.
+async function keepScreenAwake() {
+  try {
+    return await navigator.wakeLock?.request("screen");
+  } catch {
+    return null;
+  }
+}
+
+function startAppendScan(bookId, container) {
+  scanTarget = bookId;
+  container.querySelector("#scan-input").click();
+}
+
+async function appendPages(bookId, run, container) {
+  const book = libraryBooks.find((entry) => entry.id === bookId);
+  const appender = createAppender(bookId);
+  const lock = await keepScreenAwake();
+  let added = 0;
+
+  toggleScanOverlay(container, true);
+  setScanStatus(container, "Preparing…");
+
+  try {
+    await run({
+      onProgress: (number, total) => {
+        setScanStatus(container, `Reading page ${number} of ${total}…\nKeep this screen open.`);
+      },
+      onPage: async (text, number) => {
+        added = number;
+        await appender.add(text);
+      },
+    });
+    await appender.flush();
+
+    toggleScanOverlay(container, false);
+    await renderLibrary(container);
+    showNotice(container, `Added ${added} page${added === 1 ? "" : "s"} to “${book?.title ?? "book"}”.`, "success");
+  } catch (error) {
+    console.error(error);
+    // Whatever was recognized before the failure is still worth keeping.
+    await appender.flush();
+    toggleScanOverlay(container, false);
+    await renderLibrary(container);
+    showNotice(
+      container,
+      `Scanning stopped after ${added} page${added === 1 ? "" : "s"}. What was read has been saved — you can carry on from there.`,
+      "error"
+    );
+  } finally {
+    scanTarget = null;
+    lock?.release?.().catch(() => {});
+  }
 }
 
 async function saveBook(title, text) {

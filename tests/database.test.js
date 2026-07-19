@@ -126,3 +126,51 @@ test("deleting a book discards its stored position", async () => {
 test("getBook returns undefined for an unknown id", async () => {
   assert.equal(await db.getBook("does-not-exist"), undefined);
 });
+
+test("appending pages extends a book instead of replacing it", async () => {
+  const book = await db.addBook({ title: "Growing", text: "chapter one", wordCount: 2 });
+
+  await db.appendToBook(book.id, "chapter two");
+  await db.appendToBook(book.id, "chapter three");
+
+  const stored = await db.getBook(book.id);
+  assert.equal(stored.text, "chapter one\n\nchapter two\n\nchapter three");
+  assert.equal(stored.wordCount, 6);
+});
+
+test("appending leaves the reading position where it was", async () => {
+  // Scanning the rest of a book must not move the reader back to the start.
+  const book = await db.addBook({ title: "Resumed", text: "a b c", wordCount: 3 });
+  await db.updateProgress(book.id, 2);
+
+  await db.appendToBook(book.id, "d e f");
+
+  assert.equal((await db.getBook(book.id)).progress, 2);
+});
+
+test("appending to an empty book does not lead with a blank line", async () => {
+  const book = await db.addBook({ title: "Empty", text: "", wordCount: 0 });
+
+  await db.appendToBook(book.id, "first page");
+
+  assert.equal((await db.getBook(book.id)).text, "first page");
+});
+
+test("each appended chunk survives on its own", async () => {
+  // The point of flushing part-way through a long scan: an interrupted run
+  // keeps whatever was already banked.
+  const book = await db.addBook({ title: "Interrupted", text: "start", wordCount: 1 });
+
+  for (const chunk of ["pages 1-10", "pages 11-20", "pages 21-30"]) {
+    await db.appendToBook(book.id, chunk);
+  }
+
+  const stored = await db.getBook(book.id);
+  assert.match(stored.text, /start.*pages 1-10.*pages 11-20.*pages 21-30/s);
+  // "start" plus two words per chunk.
+  assert.equal(stored.wordCount, 7);
+});
+
+test("appending to a book that is gone reports rather than throws", async () => {
+  assert.equal(await db.appendToBook("no-such-book", "text"), null);
+});

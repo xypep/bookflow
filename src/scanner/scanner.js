@@ -210,12 +210,13 @@ async function recognizePage(worker, file, prepare) {
 
 // Runs OCR over each page image in order and joins the recognized text,
 // so a multi-page scan becomes one continuous book text.
-export async function scanPages(images, onProgress) {
+export async function scanPages(images, onProgress, options = {}) {
   return scanPageStream(
     (async function* () {
       for (let i = 0; i < images.length; i += 1) yield { image: images[i], number: i + 1, total: images.length };
     })(),
-    onProgress
+    onProgress,
+    options
   );
 }
 
@@ -228,15 +229,21 @@ export async function scanPages(images, onProgress) {
  * recognition — for sources that skip the crop screen, where neither has
  * happened yet. It costs one extra reduced-size pass per page, three more when
  * the page really is sideways.
+ *
+ * `onPage` receives each page's text as soon as it is recognized. A book runs
+ * to hundreds of pages and takes the better part of an hour, so a caller
+ * needs to be able to bank the work as it arrives rather than only at the end,
+ * where an interruption would cost all of it.
  */
-export async function scanPageStream(pages, onProgress, { preparePages = false } = {}) {
+export async function scanPageStream(pages, onProgress, { preparePages = false, onPage } = {}) {
   const worker = await getWorker();
   const pageTexts = [];
 
   for await (const { image, number, total } of pages) {
     onProgress?.(number, total);
-    const text = await recognizePage(worker, image, preparePages);
-    pageTexts.push(dehyphenate(text).trim());
+    const text = dehyphenate(await recognizePage(worker, image, preparePages)).trim();
+    pageTexts.push(text);
+    if (text) await onPage?.(text, number, total);
   }
 
   return pageTexts.filter(Boolean).join("\n\n");
