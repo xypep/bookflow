@@ -1,4 +1,5 @@
-const CACHE_NAME = "book-flow-v1";
+// Bumping the name is what drops the previous version's entries on activate.
+const CACHE_NAME = "book-flow-v2";
 const APP_SHELL = [
   "/",
   "/manifest.json",
@@ -22,23 +23,54 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Cache-first with background revalidation, so the app keeps working offline
-// once assets have been fetched at least once.
+/**
+ * The page itself is fetched network-first, everything else cache-first.
+ *
+ * The document names the hashed asset files a build produced, so serving it
+ * from cache pins the whole app to that build: the cached HTML asks for the
+ * old asset names, which are also cached, and a deployed update is never
+ * reached. Assets are safe to serve from cache precisely because they are
+ * hashed — a changed file is a new name, never a stale hit.
+ */
+function isNavigation(request) {
+  return request.mode === "navigate" || request.destination === "document";
+}
+
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    // Offline: the last good copy of the page, or the shell entry for a route
+    // that was never visited directly.
+    return (await caches.match(request)) ?? (await caches.match("/")) ?? Response.error();
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return Response.error();
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
-          }
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || fetchPromise;
-    })
+    isNavigation(event.request) ? networkFirst(event.request) : cacheFirst(event.request)
   );
 });
