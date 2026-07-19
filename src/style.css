@@ -1139,41 +1139,121 @@ textarea {
   height: 100%;
 }
 
-.reader-header {
+/* Reading is the point of this screen, so the menu is three items and folds
+   away to a single chevron. */
+
+.reader-menu {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
+  gap: 4px;
+  padding: 10px 12px;
 }
 
-.wpm-control {
+.reader-menu-button {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-.wpm-control button {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: none;
   color: var(--color-text);
-  font-size: 1.3rem;
+  opacity: 0.75;
+}
+
+.reader-menu-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.reader-menu-button.toggle {
+  background: var(--color-surface);
+}
+
+.reader-menu-button.toggle svg {
+  transition: transform 0.15s ease;
+}
+
+/* Collapsed the chevron points down — the direction the menu will reappear
+   from — and everything else is gone. */
+.reader-menu.collapsed .reader-menu-button.toggle {
+  background: none;
+}
+
+.reader-menu.collapsed .reader-menu-button:not(.toggle) {
+  display: none;
+}
+
+.reader-menu:not(.collapsed) .reader-menu-button.toggle svg {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-menu-button.toggle svg {
+    transition: none;
+  }
 }
 
 #wpm-value {
-  min-width: 90px;
+  min-width: 3ch;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
-#mode-toggle {
-  width: auto;
-  height: auto;
-  padding: 8px 14px;
-  border-radius: 20px;
-  font-size: 0.9rem;
+/* Controls inside the settings sheet */
+
+.setting-row.static {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-elevated);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.stepper button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.segmented {
+  display: flex;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-bg);
+  padding: 3px;
+}
+
+.segmented button {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
 }
 
 .reader-tap-zones {

@@ -8,6 +8,7 @@ import { setLastOpenedBookId } from "./recent.js";
 const WPM_STORAGE_KEY = "book-flow-wpm";
 const MODE_STORAGE_KEY = "book-flow-mode";
 const BIONIC_STORAGE_KEY = "book-flow-bionic";
+const MENU_STORAGE_KEY = "book-flow-reader-menu";
 const MIN_WPM = 100;
 const MAX_WPM = 900;
 const WPM_STEP = 25;
@@ -30,6 +31,7 @@ export async function renderReader(container, bookId) {
   const wpm = clampWpm(Number(localStorage.getItem(WPM_STORAGE_KEY)) || 300);
   const mode = localStorage.getItem(MODE_STORAGE_KEY) === "manual" ? "manual" : "auto";
   const bionic = localStorage.getItem(BIONIC_STORAGE_KEY) === "on";
+  const menuOpen = localStorage.getItem(MENU_STORAGE_KEY) !== "closed";
 
   state = {
     book,
@@ -38,6 +40,7 @@ export async function renderReader(container, bookId) {
     wpm,
     mode,
     bionic,
+    menuOpen,
     chapters,
     playing: false,
     timerId: null,
@@ -45,16 +48,11 @@ export async function renderReader(container, bookId) {
 
   container.innerHTML = `
     <div class="screen reader-screen">
-      <header class="reader-header">
-        <button id="back-button" class="icon-button" aria-label="Back to library">‹</button>
-        <div class="wpm-control">
-          <button id="wpm-down" aria-label="Decrease speed">−</button>
-          <span id="wpm-value">${wpm} WPM</span>
-          <button id="wpm-up" aria-label="Increase speed">+</button>
-        </div>
-        <button id="mode-toggle" class="icon-button" aria-label="Switch tap mode">${modeLabel(mode)}</button>
-        ${chapters.length ? `<button id="chapter-button" class="icon-button" aria-label="Jump to chapter">☰</button>` : ""}
-        <button id="reader-settings-button" class="icon-button" aria-label="Reading settings">⚙</button>
+      <header id="reader-menu" class="reader-menu${menuOpen ? "" : " collapsed"}">
+        <button id="menu-toggle" class="reader-menu-button toggle" aria-expanded="${menuOpen}"
+          aria-label="${menuOpen ? "Hide menu" : "Show menu"}">${chevronIcon()}</button>
+        <button id="home-button" class="reader-menu-button" aria-label="Home">${homeIcon()}</button>
+        <button id="reader-settings-button" class="reader-menu-button" aria-label="Reading settings">${slidersIcon()}</button>
       </header>
 
       <div class="reader-tap-zones">
@@ -70,19 +68,17 @@ export async function renderReader(container, bookId) {
       </div>
 
       ${chapters.length ? chapterModal(chapters) : ""}
-      ${settingsSheet(bionic)}
+      ${settingsSheet({ wpm, mode, bionic, hasChapters: chapters.length > 0 })}
     </div>
   `;
 
   renderWord();
   updateProgressBar();
 
-  container.querySelector("#back-button").addEventListener("click", handleBack);
-  container.querySelector("#wpm-down").addEventListener("click", () => changeWpm(-WPM_STEP));
-  container.querySelector("#wpm-up").addEventListener("click", () => changeWpm(WPM_STEP));
+  container.querySelector("#menu-toggle").addEventListener("click", toggleMenu);
+  container.querySelector("#home-button").addEventListener("click", handleHome);
   container.querySelector("#tap-left").addEventListener("click", handleTapLeft);
   container.querySelector("#tap-right").addEventListener("click", handleTapRight);
-  container.querySelector("#mode-toggle").addEventListener("click", toggleMode);
 
   container.querySelector("#reader-settings-button").addEventListener("click", () => {
     toggleSettings(true);
@@ -90,18 +86,87 @@ export async function renderReader(container, bookId) {
   container.querySelector("#reader-settings").addEventListener("click", handleSettingsClick);
 
   if (chapters.length) {
-    container.querySelector("#chapter-button").addEventListener("click", () => toggleChapters(true));
     container.querySelector("#chapter-close").addEventListener("click", () => toggleChapters(false));
     container.querySelector("#chapter-list").addEventListener("click", handleChapterPick);
   }
 }
 
-function settingsSheet(bionic) {
+// Inline SVG so the icons inherit the theme's text colour, matching the
+// bottom navigation elsewhere in the app.
+function icon(paths, width = 1.8) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+function chevronIcon() {
+  // Spans nearly the full box: a chevron is a flat shape, and drawn small it
+  // reads as a stray mark next to icons that fill their box.
+  return icon(`<path d="M4 8.5l8 8 8-8" />`, 2.4);
+}
+
+function homeIcon() {
+  return icon(`<path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V20h13V9.5" />`);
+}
+
+function slidersIcon() {
+  return icon(
+    `<circle cx="8" cy="8" r="2.4" /><path d="M10.4 8H21" /><path d="M3 8h2.6" />
+     <circle cx="16" cy="16" r="2.4" /><path d="M18.4 16H21" /><path d="M3 16h10.6" />`
+  );
+}
+
+// Collapsing leaves only the chevron, so a long reading session isn't spent
+// looking at controls. The choice sticks: someone who wants the screen clear
+// wants it clear next time too.
+function toggleMenu() {
+  state.menuOpen = !state.menuOpen;
+  localStorage.setItem(MENU_STORAGE_KEY, state.menuOpen ? "open" : "closed");
+
+  const menu = document.getElementById("reader-menu");
+  menu.classList.toggle("collapsed", !state.menuOpen);
+
+  const toggle = document.getElementById("menu-toggle");
+  toggle.setAttribute("aria-expanded", String(state.menuOpen));
+  toggle.setAttribute("aria-label", state.menuOpen ? "Hide menu" : "Show menu");
+}
+
+function handleHome() {
+  pause();
+  flushProgress();
+  endSession();
+  window.location.hash = "#/";
+}
+
+function settingsSheet({ wpm, mode, bionic, hasChapters }) {
   return `
     <div id="reader-settings" class="add-sheet hidden">
       <div class="add-sheet-backdrop" data-close="1"></div>
       <div class="add-sheet-options">
         <p class="add-sheet-title">Reading</p>
+
+        <div class="setting-row static">
+          <span class="setting-text">
+            <span class="setting-name">Speed</span>
+            <span class="setting-note">Words shown per minute.</span>
+          </span>
+          <span class="stepper">
+            <button type="button" data-wpm="-1" aria-label="Decrease speed">−</button>
+            <span id="wpm-value">${wpm}</span>
+            <button type="button" data-wpm="1" aria-label="Increase speed">+</button>
+          </span>
+        </div>
+
+        <div class="setting-row static">
+          <span class="setting-text">
+            <span class="setting-name">Tapping</span>
+            <span class="setting-note">Auto plays on its own; manual steps a word per tap.</span>
+          </span>
+          <span class="segmented" role="group" aria-label="Tap mode">
+            <button type="button" data-mode="auto" aria-pressed="${mode === "auto"}">Auto</button>
+            <button type="button" data-mode="manual" aria-pressed="${mode === "manual"}">Manual</button>
+          </span>
+        </div>
+
         <button type="button" class="setting-row" data-setting="bionic" aria-pressed="${bionic}">
           <span class="setting-text">
             <span class="setting-name">Bold first letters</span>
@@ -109,6 +174,8 @@ function settingsSheet(bionic) {
           </span>
           <span class="setting-switch" aria-hidden="true"></span>
         </button>
+
+        ${hasChapters ? `<button type="button" data-jump="chapters">Jump to chapter</button>` : ""}
         <button type="button" data-close="1">Done</button>
       </div>
     </div>
@@ -123,6 +190,24 @@ function toggleSettings(show) {
 }
 
 function handleSettingsClick(event) {
+  const step = event.target.closest("[data-wpm]");
+  if (step) {
+    changeWpm(Number(step.dataset.wpm) * WPM_STEP);
+    return;
+  }
+
+  const modeButton = event.target.closest("[data-mode]");
+  if (modeButton) {
+    setMode(modeButton.dataset.mode);
+    return;
+  }
+
+  if (event.target.closest("[data-jump]")) {
+    toggleSettings(false);
+    toggleChapters(true);
+    return;
+  }
+
   const setting = event.target.closest("[data-setting]");
   if (setting?.dataset.setting === "bionic") {
     state.bionic = !state.bionic;
@@ -184,10 +269,6 @@ function handleChapterPick(event) {
   updateProgressBar();
   saveProgress();
   toggleChapters(false);
-}
-
-function modeLabel(mode) {
-  return mode === "manual" ? "Manual" : "Auto";
 }
 
 function clampWpm(wpm) {
@@ -306,19 +387,21 @@ function handleTapRight() {
   }
 }
 
-function toggleMode() {
-  if (state.playing) {
-    pause();
-  }
-  state.mode = state.mode === "manual" ? "auto" : "manual";
-  localStorage.setItem(MODE_STORAGE_KEY, state.mode);
-  document.getElementById("mode-toggle").textContent = modeLabel(state.mode);
+function setMode(mode) {
+  if (state.mode === mode) return;
+  if (state.playing) pause();
+
+  state.mode = mode;
+  localStorage.setItem(MODE_STORAGE_KEY, mode);
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+  });
 }
 
 function changeWpm(delta) {
   state.wpm = clampWpm(state.wpm + delta);
   localStorage.setItem(WPM_STORAGE_KEY, String(state.wpm));
-  document.getElementById("wpm-value").textContent = `${state.wpm} WPM`;
+  document.getElementById("wpm-value").textContent = String(state.wpm);
   if (state.playing) {
     scheduleNext();
   }
@@ -347,14 +430,9 @@ function flushProgress() {
   pendingSave = null;
 }
 
-function handleBack() {
-  pause();
-  window.location.hash = "#/library";
-}
-
 // Called by the router before leaving the reader route (e.g. swipe-back
-// navigation, not just the in-app back button), so a playing timer never
-// keeps ticking against a state that's no longer on screen.
+// navigation, not just the home button), so a playing timer never keeps
+// ticking against a state that's no longer on screen.
 export function stopReader() {
   if (!state) return;
   if (state.playing) {
